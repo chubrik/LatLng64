@@ -8,4 +8,9 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="XConsole" Version="1.4.*" />
+    <Using Include="Chubrik.XConsole.XConsole" Alias="Console" />
+  </ItemGroup>
+
 </Project>

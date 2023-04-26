@@ -33,10 +33,11 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
     private const double SANE_ERROR = 0.5 / SANE_MUL;
     private const double ROUGH_ERROR = 0.5 / ROUGH_MUL;
 
-    private const double EXACT_MAX_LONGITUDE = 180 - EXACT_ERROR;
-    private const double GOOD_MAX_LONGITUDE = 180 - GOOD_ERROR;
-    private const double SANE_MAX_LONGITUDE = 180 - SANE_ERROR;
-    private const double ROUGH_MAX_LONGITUDE = 180 - ROUGH_ERROR;
+    private const double DOUBLE_BIT_ERROR = 1e-14;
+    private const double EXACT_MAX_LONGITUDE = 180 - EXACT_ERROR - DOUBLE_BIT_ERROR * 2;
+    private const double GOOD_MAX_LONGITUDE = 180 - GOOD_ERROR - DOUBLE_BIT_ERROR * 2;
+    private const double SANE_MAX_LONGITUDE = 180 - SANE_ERROR - DOUBLE_BIT_ERROR * 2;
+    private const double ROUGH_MAX_LONGITUDE = 180 - ROUGH_ERROR - DOUBLE_BIT_ERROR * 2;
 
     private const ulong NORTHERN_SIZE = ((NORTHERN_TOP - NORTHERN_BOTTOM) * (ulong)GOOD_MUL + 1) * ROUGH_MUL_360;
     private const ulong ARCTIC_SIZE = (NORTHERN_BOTTOM - ARCTIC_BOTTOM) * (ulong)GOOD_MUL * SANE_MUL_360;
@@ -55,7 +56,6 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
     private const ulong ANTARCTIC_MIN_VALUE = SOUTHERN_MIN_VALUE + SOUTHERN_SIZE;
     private const ulong SOUTHERN_MIN_VALUE = 0;
 
-    private const double DOUBLE_BIT_ERROR = 1e-14;
     private const double NORTHERN_BOTTOM_ENCODE = NORTHERN_BOTTOM - GOOD_ERROR;
     private const double ARCTIC_BOTTOM_ENCODE = ARCTIC_BOTTOM - EXACT_ERROR - DOUBLE_BIT_ERROR;
     private const double AURORA_BOTTOM_ENCODE = AURORA_BOTTOM - EXACT_ERROR - DOUBLE_BIT_ERROR;
@@ -117,7 +117,7 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
         {
             if (latitude < AURORA_BOTTOM_ENCODE)
             {
-                if (longitude >= EXACT_MAX_LONGITUDE)
+                if (longitude > EXACT_MAX_LONGITUDE)
                     longitude = -180;
 
                 _data = CENTRAL_SHIFT_ENCODE + (ulong)(
@@ -125,7 +125,7 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
             }
             else if (latitude < ARCTIC_BOTTOM_ENCODE)
             {
-                if (longitude >= GOOD_MAX_LONGITUDE)
+                if (longitude > GOOD_MAX_LONGITUDE)
                     longitude = -180;
 
                 _data = AURORA_SHIFT_ENCODE + (ulong)(
@@ -133,7 +133,7 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
             }
             else if (latitude < NORTHERN_BOTTOM_ENCODE)
             {
-                if (longitude >= SANE_MAX_LONGITUDE)
+                if (longitude > SANE_MAX_LONGITUDE)
                     longitude = -180;
 
                 _data = ARCTIC_SHIFT_ENCODE + (ulong)(
@@ -141,7 +141,7 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
             }
             else
             {
-                if (longitude >= ROUGH_MAX_LONGITUDE)
+                if (longitude > ROUGH_MAX_LONGITUDE)
                     longitude = -180;
 
                 _data = NORTHERN_SHIFT_ENCODE + (ulong)(
@@ -150,7 +150,7 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
         }
         else if (latitude > INTERIM_BOTTOM_ENCODE)
         {
-            if (longitude >= GOOD_MAX_LONGITUDE)
+            if (longitude > GOOD_MAX_LONGITUDE)
                 longitude = -180;
 
             _data = INTERIM_SHIFT_ENCODE + (ulong)(
@@ -158,7 +158,7 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
         }
         else if (latitude > ANTARCTIC_BOTTOM_ENCODE)
         {
-            if (longitude >= SANE_MAX_LONGITUDE)
+            if (longitude > SANE_MAX_LONGITUDE)
                 longitude = -180;
 
             _data = ANTARCTIC_SHIFT_ENCODE + (ulong)(
@@ -166,7 +166,7 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
         }
         else
         {
-            if (longitude >= ROUGH_MAX_LONGITUDE)
+            if (longitude > ROUGH_MAX_LONGITUDE)
                 longitude = -180;
 
             _data = SOUTHERN_SHIFT_ENCODE + (ulong)(

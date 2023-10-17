@@ -28,16 +28,16 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
     private const long SANE_MUL_360 = 360 * (long)SANE_MUL;
     private const long ROUGH_MUL_360 = 360 * (long)ROUGH_MUL;
 
-    private const double EXACT_ERROR = 0.5 / EXACT_MUL;
-    private const double GOOD_ERROR = 0.5 / GOOD_MUL;
-    private const double SANE_ERROR = 0.5 / SANE_MUL;
-    private const double ROUGH_ERROR = 0.5 / ROUGH_MUL;
+    private const double EXACT_ERROR = 0.5 / EXACT_MUL;  //  0.000000025
+    private const double GOOD_ERROR = 0.5 / GOOD_MUL;    //  0.00000005
+    private const double SANE_ERROR = 0.5 / SANE_MUL;    //  0.0000001
+    private const double ROUGH_ERROR = 0.5 / ROUGH_MUL;  //  0.0000005
 
-    private const double DOUBLE_BIT_ERROR = 1e-14;
-    private const double EXACT_MAX_LONGITUDE = 180 - EXACT_ERROR - DOUBLE_BIT_ERROR * 2;
-    private const double GOOD_MAX_LONGITUDE = 180 - GOOD_ERROR - DOUBLE_BIT_ERROR * 2;
-    private const double SANE_MAX_LONGITUDE = 180 - SANE_ERROR - DOUBLE_BIT_ERROR * 2;
-    private const double ROUGH_MAX_LONGITUDE = 180 - ROUGH_ERROR - DOUBLE_BIT_ERROR * 2;
+    private const double DOUBLE_BIT_ERROR = 1e-14;                                        //    0.00000000000001
+    private const double EXACT_MAX_LONGITUDE = 180 - EXACT_ERROR - 2 * DOUBLE_BIT_ERROR;  //  179.99999997499998
+    private const double GOOD_MAX_LONGITUDE = 180 - GOOD_ERROR - 2 * DOUBLE_BIT_ERROR;    //  179.99999994999996
+    private const double SANE_MAX_LONGITUDE = 180 - SANE_ERROR - 2 * DOUBLE_BIT_ERROR;    //  179.99999989999998
+    private const double ROUGH_MAX_LONGITUDE = 180 - ROUGH_ERROR - 2 * DOUBLE_BIT_ERROR;  //  179.99999949999997
 
     private const ulong NORTHERN_SIZE = ((NORTHERN_TOP - NORTHERN_BOTTOM) * (ulong)GOOD_MUL + 1) * ROUGH_MUL_360;
     private const ulong ARCTIC_SIZE = (NORTHERN_BOTTOM - ARCTIC_BOTTOM) * (ulong)GOOD_MUL * SANE_MUL_360;
@@ -47,36 +47,37 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
     private const ulong ANTARCTIC_SIZE = (INTERIM_BOTTOM - ANTARCTIC_BOTTOM) * (ulong)GOOD_MUL * SANE_MUL_360;
     private const ulong SOUTHERN_SIZE = ((ANTARCTIC_BOTTOM - SOUTHERN_BOTTOM) * (ulong)GOOD_MUL + 1) * ROUGH_MUL_360;
 
-    private const ulong MAX_VALUE = NORTHERN_MIN_VALUE + NORTHERN_SIZE - 1;
-    private const ulong NORTHERN_MIN_VALUE = ARCTIC_MIN_VALUE + ARCTIC_SIZE;
-    private const ulong ARCTIC_MIN_VALUE = AURORA_MIN_VALUE + AURORA_SIZE;
-    private const ulong AURORA_MIN_VALUE = CENTRAL_MIN_VALUE + CENTRAL_SIZE;
-    private const ulong CENTRAL_MIN_VALUE = INTERIM_MIN_VALUE + INTERIM_SIZE;
-    private const ulong INTERIM_MIN_VALUE = ANTARCTIC_MIN_VALUE + ANTARCTIC_SIZE;
-    private const ulong ANTARCTIC_MIN_VALUE = SOUTHERN_MIN_VALUE + SOUTHERN_SIZE;
-    private const ulong SOUTHERN_MIN_VALUE = 0;
+    private const ulong NORTHERN_MAX_DATA = NORTHERN_MIN_DATA + NORTHERN_SIZE - 1;  //  18 431 999 993 520 000 000   0x_FFCB_9E56_51C3_0C00
+    private const ulong NORTHERN_MIN_DATA = ARCTIC_MIN_DATA + ARCTIC_SIZE;          //  18 413 999 993 160 000 001   0x_FF8B_AB6E_A658_E201
+    private const ulong ARCTIC_MIN_DATA = AURORA_MIN_DATA + AURORA_SIZE;            //  18 179 999 993 160 000 001   0x_FC4C_55AC_08E7_E201
+    private const ulong AURORA_MIN_DATA = CENTRAL_MIN_DATA + CENTRAL_SIZE;          //  17 315 999 993 160 000 001   0x_F04E_CA3F_EAF7_E201
+    private const ulong CENTRAL_MIN_DATA = INTERIM_MIN_DATA + INTERIM_SIZE;         //     612 000 000 360 000 001   0x_087E_42C1_FFFF_2A01
+    private const ulong INTERIM_MIN_DATA = ANTARCTIC_MIN_DATA + ANTARCTIC_SIZE;     //     468 000 000 360 000 001   0x_067E_AB85_5057_2A01
+    private const ulong ANTARCTIC_MIN_DATA = SOUTHERN_MIN_DATA + SOUTHERN_SIZE;     //      18 000 000 360 000 001   0x_003F_F2E7_AB6A_2A01
+    private const ulong SOUTHERN_MIN_DATA = 1;                                      //                           1   0x_0000_0000_0000_0001
 
-    private const double NORTHERN_BOTTOM_ENCODE = NORTHERN_BOTTOM - GOOD_ERROR;
-    private const double ARCTIC_BOTTOM_ENCODE = ARCTIC_BOTTOM - EXACT_ERROR - DOUBLE_BIT_ERROR;
-    private const double AURORA_BOTTOM_ENCODE = AURORA_BOTTOM - EXACT_ERROR - DOUBLE_BIT_ERROR;
-    private const double CENTRAL_BOTTOM_ENCODE = CENTRAL_BOTTOM + EXACT_ERROR + DOUBLE_BIT_ERROR;
-    private const double INTERIM_BOTTOM_ENCODE = INTERIM_BOTTOM + GOOD_ERROR + DOUBLE_BIT_ERROR;
-    private const double ANTARCTIC_BOTTOM_ENCODE = ANTARCTIC_BOTTOM + GOOD_ERROR;
+    private const double NORTHERN_BOTTOM_ENCODE = NORTHERN_BOTTOM - GOOD_ERROR;                    //  84.99999995
+    private const double ARCTIC_BOTTOM_ENCODE = ARCTIC_BOTTOM - EXACT_ERROR;                       //  71.999999975
+    private const double AURORA_BOTTOM_ENCODE = AURORA_BOTTOM - EXACT_ERROR - DOUBLE_BIT_ERROR;    //  59.999999974999994
+    private const double CENTRAL_BOTTOM_ENCODE = CENTRAL_BOTTOM + EXACT_ERROR + DOUBLE_BIT_ERROR;  // -55.999999974999994
+    private const double INTERIM_BOTTOM_ENCODE = INTERIM_BOTTOM + GOOD_ERROR + DOUBLE_BIT_ERROR;   // -59.999999949999996
+    private const double ANTARCTIC_BOTTOM_ENCODE = ANTARCTIC_BOTTOM + GOOD_ERROR;                  // -84.99999995
 
-    private const ulong NORTHERN_SHIFT_ENCODE = NORTHERN_MIN_VALUE - NORTHERN_BOTTOM * (ulong)GOOD_MUL * ROUGH_MUL_360 + ROUGH_MUL_180;
-    private const ulong ARCTIC_SHIFT_ENCODE = ARCTIC_MIN_VALUE - ARCTIC_BOTTOM * (ulong)GOOD_MUL * SANE_MUL_360 + SANE_MUL_180;
-    private const ulong AURORA_SHIFT_ENCODE = AURORA_MIN_VALUE - AURORA_BOTTOM * (ulong)EXACT_MUL * GOOD_MUL_360 + GOOD_MUL_180;
-    private const ulong CENTRAL_SHIFT_ENCODE = CENTRAL_MIN_VALUE + (-CENTRAL_BOTTOM * (ulong)EXACT_MUL - 1) * EXACT_MUL_360 + EXACT_MUL_180;
-    private const ulong INTERIM_SHIFT_ENCODE = INTERIM_MIN_VALUE + (-INTERIM_BOTTOM * (ulong)GOOD_MUL - 1) * GOOD_MUL_360 + GOOD_MUL_180;
-    private const ulong ANTARCTIC_SHIFT_ENCODE = ANTARCTIC_MIN_VALUE + (-ANTARCTIC_BOTTOM * (ulong)GOOD_MUL - 1) * SANE_MUL_360 + SANE_MUL_180;
-    private const ulong SOUTHERN_SHIFT_ENCODE = SOUTHERN_MIN_VALUE + (-SOUTHERN_BOTTOM) * (ulong)GOOD_MUL * ROUGH_MUL_360 + ROUGH_MUL_180;
+    private const ulong NORTHERN_SHIFT_ENCODE = NORTHERN_MIN_DATA - NORTHERN_BOTTOM * (ulong)GOOD_MUL * ROUGH_MUL_360 + ROUGH_MUL_180;
+    private const ulong ARCTIC_SHIFT_ENCODE = ARCTIC_MIN_DATA - ARCTIC_BOTTOM * (ulong)GOOD_MUL * SANE_MUL_360 + SANE_MUL_180;
+    private const ulong AURORA_SHIFT_ENCODE = AURORA_MIN_DATA - AURORA_BOTTOM * (ulong)EXACT_MUL * GOOD_MUL_360 + GOOD_MUL_180;
+    private const ulong CENTRAL_SHIFT_ENCODE = CENTRAL_MIN_DATA + (-CENTRAL_BOTTOM * (ulong)EXACT_MUL - 1) * EXACT_MUL_360 + EXACT_MUL_180;
+    private const ulong INTERIM_SHIFT_ENCODE = INTERIM_MIN_DATA + (-INTERIM_BOTTOM * (ulong)GOOD_MUL - 1) * GOOD_MUL_360 + GOOD_MUL_180;
+    private const ulong ANTARCTIC_SHIFT_ENCODE = ANTARCTIC_MIN_DATA + (-ANTARCTIC_BOTTOM * (ulong)GOOD_MUL - 1) * SANE_MUL_360 + SANE_MUL_180;
+    private const ulong SOUTHERN_SHIFT_ENCODE = SOUTHERN_MIN_DATA + (-SOUTHERN_BOTTOM) * (ulong)GOOD_MUL * ROUGH_MUL_360 + ROUGH_MUL_180;
 
-    private const ulong NORTHERN_SHIFT_DECODE = NORTHERN_MIN_VALUE;
-    private const ulong ARCTIC_SHIFT_DECODE = ARCTIC_MIN_VALUE;
-    private const ulong AURORA_SHIFT_DECODE = AURORA_MIN_VALUE;
-    private const ulong CENTRAL_SHIFT_DECODE = CENTRAL_MIN_VALUE - EXACT_MUL_360;
-    private const ulong INTERIM_SHIFT_DECODE = INTERIM_MIN_VALUE - GOOD_MUL_360;
-    private const ulong ANTARCTIC_SHIFT_DECODE = ANTARCTIC_MIN_VALUE - SANE_MUL_360;
+    private const ulong NORTHERN_SHIFT_DECODE = NORTHERN_MIN_DATA;
+    private const ulong ARCTIC_SHIFT_DECODE = ARCTIC_MIN_DATA;
+    private const ulong AURORA_SHIFT_DECODE = AURORA_MIN_DATA;
+    private const ulong CENTRAL_SHIFT_DECODE = CENTRAL_MIN_DATA - EXACT_MUL_360;
+    private const ulong INTERIM_SHIFT_DECODE = INTERIM_MIN_DATA - GOOD_MUL_360;
+    private const ulong ANTARCTIC_SHIFT_DECODE = ANTARCTIC_MIN_DATA - SANE_MUL_360;
+    private const ulong SOUTHERN_SHIFT_DECODE = SOUTHERN_MIN_DATA;
 
     private const ulong NORTHERN_ADD_DECODE = (ulong)(NORTHERN_BOTTOM * GOOD_MUL);
     private const ulong ARCTIC_ADD_DECODE = (ulong)(ARCTIC_BOTTOM * GOOD_MUL);
@@ -90,14 +91,9 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
 
     private readonly ulong _data;
 
-    public LatLng64()
-    {
-        _data = CENTRAL_SHIFT_ENCODE;
-    }
-
     private LatLng64(ulong data)
     {
-        if (data > MAX_VALUE)
+        if (data < SOUTHERN_MIN_DATA || data > NORTHERN_MAX_DATA)
             throw new ArgumentOutOfRangeException(nameof(data));
 
         _data = data;
@@ -105,38 +101,65 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
 
     public LatLng64(double latitude, double longitude)
     {
-        if (double.IsNaN(latitude) || latitude < -90 || latitude > 90)
+        if (!(latitude >= -90 && latitude <= 90))
             throw new ArgumentOutOfRangeException(nameof(latitude),
                 $"Requires a number between -90 and +90 inclusive, but the actual value is: {latitude}");
 
-        if (double.IsNaN(latitude) || longitude < -180 || longitude > 180)
+        if (!(longitude >= -180 && longitude <= 180))
             throw new ArgumentOutOfRangeException(nameof(longitude),
                 $"Requires a number between -180 and +180 inclusive, but the actual value is: {longitude}");
 
-        if (latitude > CENTRAL_BOTTOM_ENCODE)
+        unchecked
         {
-            if (latitude < AURORA_BOTTOM_ENCODE)
+            if (latitude > CENTRAL_BOTTOM_ENCODE)
             {
-                if (longitude > EXACT_MAX_LONGITUDE)
-                    longitude = -180;
+                if (latitude < AURORA_BOTTOM_ENCODE)
+                {
+                    if (longitude > EXACT_MAX_LONGITUDE)
+                        longitude = -180;
 
-                _data = CENTRAL_SHIFT_ENCODE + (ulong)(
-                    (long)Math.Round(latitude * EXACT_MUL) * EXACT_MUL_360 + (long)Math.Round(longitude * EXACT_MUL));
+                    _data = CENTRAL_SHIFT_ENCODE + (ulong)(
+                        (long)Math.Round(latitude * EXACT_MUL) * EXACT_MUL_360 + (long)Math.Round(longitude * EXACT_MUL));
+                }
+                else if (latitude < ARCTIC_BOTTOM_ENCODE)
+                {
+                    if (longitude > GOOD_MAX_LONGITUDE)
+                        longitude = -180;
+
+                    _data = AURORA_SHIFT_ENCODE + (ulong)(
+                        (long)Math.Round(latitude * EXACT_MUL) * GOOD_MUL_360 + (long)Math.Round(longitude * GOOD_MUL));
+                }
+                else if (latitude < NORTHERN_BOTTOM_ENCODE)
+                {
+                    if (longitude > SANE_MAX_LONGITUDE)
+                        longitude = -180;
+
+                    _data = ARCTIC_SHIFT_ENCODE + (ulong)(
+                        (long)Math.Round(latitude * GOOD_MUL) * SANE_MUL_360 + (long)Math.Round(longitude * SANE_MUL));
+                }
+                else
+                {
+                    if (longitude > ROUGH_MAX_LONGITUDE)
+                        longitude = -180;
+
+                    _data = NORTHERN_SHIFT_ENCODE + (ulong)(
+                        (long)Math.Round(latitude * GOOD_MUL) * ROUGH_MUL_360 + (long)Math.Round(longitude * ROUGH_MUL));
+                }
             }
-            else if (latitude < ARCTIC_BOTTOM_ENCODE)
+            else if (latitude > INTERIM_BOTTOM_ENCODE)
             {
                 if (longitude > GOOD_MAX_LONGITUDE)
                     longitude = -180;
 
-                _data = AURORA_SHIFT_ENCODE + (ulong)(
-                    (long)Math.Round(latitude * EXACT_MUL) * GOOD_MUL_360 + (long)Math.Round(longitude * GOOD_MUL));
+                _data = INTERIM_SHIFT_ENCODE + (ulong)(
+                    (long)Math.Round(latitude * GOOD_MUL) * GOOD_MUL_360 + (long)Math.Round(longitude * GOOD_MUL));
             }
-            else if (latitude < NORTHERN_BOTTOM_ENCODE)
+            else if (latitude > ANTARCTIC_BOTTOM_ENCODE)
             {
                 if (longitude > SANE_MAX_LONGITUDE)
                     longitude = -180;
 
-                _data = ARCTIC_SHIFT_ENCODE + (ulong)(
+                _data = ANTARCTIC_SHIFT_ENCODE + (ulong)(
                     (long)Math.Round(latitude * GOOD_MUL) * SANE_MUL_360 + (long)Math.Round(longitude * SANE_MUL));
             }
             else
@@ -144,105 +167,106 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
                 if (longitude > ROUGH_MAX_LONGITUDE)
                     longitude = -180;
 
-                _data = NORTHERN_SHIFT_ENCODE + (ulong)(
+                _data = SOUTHERN_SHIFT_ENCODE + (ulong)(
                     (long)Math.Round(latitude * GOOD_MUL) * ROUGH_MUL_360 + (long)Math.Round(longitude * ROUGH_MUL));
             }
         }
-        else if (latitude > INTERIM_BOTTOM_ENCODE)
-        {
-            if (longitude > GOOD_MAX_LONGITUDE)
-                longitude = -180;
-
-            _data = INTERIM_SHIFT_ENCODE + (ulong)(
-                (long)Math.Round(latitude * GOOD_MUL) * GOOD_MUL_360 + (long)Math.Round(longitude * GOOD_MUL));
-        }
-        else if (latitude > ANTARCTIC_BOTTOM_ENCODE)
-        {
-            if (longitude > SANE_MAX_LONGITUDE)
-                longitude = -180;
-
-            _data = ANTARCTIC_SHIFT_ENCODE + (ulong)(
-                (long)Math.Round(latitude * GOOD_MUL) * SANE_MUL_360 + (long)Math.Round(longitude * SANE_MUL));
-        }
-        else
-        {
-            if (longitude > ROUGH_MAX_LONGITUDE)
-                longitude = -180;
-
-            _data = SOUTHERN_SHIFT_ENCODE + (ulong)(
-                (long)Math.Round(latitude * GOOD_MUL) * ROUGH_MUL_360 + (long)Math.Round(longitude * ROUGH_MUL));
-        }
     }
 
-    public (double Latitude, double Longitude) Coordinates
+    public double Latitude
     {
         get
         {
-            var data = _data;
-            double latitude;
-            double longitude;
+            unchecked
+            {
+                if (_data >= CENTRAL_MIN_DATA)
+                {
+                    if (_data < AURORA_MIN_DATA)
+                    {
+                        return (long)((_data - CENTRAL_SHIFT_DECODE) / EXACT_MUL_360 - CENTRAL_SUB_DECODE) / EXACT_MUL;
+                    }
+                    else if (_data < ARCTIC_MIN_DATA)
+                    {
+                        return ((_data - AURORA_SHIFT_DECODE) / GOOD_MUL_360 + AURORA_ADD_DECODE) / EXACT_MUL;
+                    }
+                    else if (_data < NORTHERN_MIN_DATA)
+                    {
+                        return ((_data - ARCTIC_SHIFT_DECODE) / SANE_MUL_360 + ARCTIC_ADD_DECODE) / GOOD_MUL;
+                    }
+                    else if (_data <= NORTHERN_MAX_DATA)
+                    {
+                        return ((_data - NORTHERN_SHIFT_DECODE) / ROUGH_MUL_360 + NORTHERN_ADD_DECODE) / GOOD_MUL;
+                    }
+                }
+                else if (_data >= INTERIM_MIN_DATA)
+                {
+                    return (long)((_data - INTERIM_SHIFT_DECODE) / GOOD_MUL_360 - INTERIM_SUB_DECODE) / GOOD_MUL;
+                }
+                else if (_data >= ANTARCTIC_MIN_DATA)
+                {
+                    return (long)((_data - ANTARCTIC_SHIFT_DECODE) / SANE_MUL_360 - ANTARCTIC_SUB_DECODE) / GOOD_MUL;
+                }
+                else if (_data >= SOUTHERN_MIN_DATA)
+                {
+                    return (long)((_data - SOUTHERN_SHIFT_DECODE) / ROUGH_MUL_360 - SOUTHERN_SUB_DECODE) / GOOD_MUL;
+                }
 
-            if (data >= CENTRAL_MIN_VALUE)
-            {
-                if (data < AURORA_MIN_VALUE)
-                {
-                    data -= CENTRAL_SHIFT_DECODE;
-                    latitude = (long)(data / EXACT_MUL_360 - CENTRAL_SUB_DECODE) / EXACT_MUL;
-                    longitude = (long)(data % EXACT_MUL_360 - EXACT_MUL_180) / EXACT_MUL;
-                }
-                else if (data < ARCTIC_MIN_VALUE)
-                {
-                    data -= AURORA_SHIFT_DECODE;
-                    latitude = (data / GOOD_MUL_360 + AURORA_ADD_DECODE) / EXACT_MUL;
-                    longitude = (long)(data % GOOD_MUL_360 - GOOD_MUL_180) / GOOD_MUL;
-                }
-                else if (data < NORTHERN_MIN_VALUE)
-                {
-                    data -= ARCTIC_SHIFT_DECODE;
-                    latitude = (data / SANE_MUL_360 + ARCTIC_ADD_DECODE) / GOOD_MUL;
-                    longitude = (long)(data % SANE_MUL_360 - SANE_MUL_180) / SANE_MUL;
-                }
-                else if (data <= MAX_VALUE)
-                {
-                    data -= NORTHERN_SHIFT_DECODE;
-                    latitude = (data / ROUGH_MUL_360 + NORTHERN_ADD_DECODE) / GOOD_MUL;
-                    longitude = (long)(data % ROUGH_MUL_360 - ROUGH_MUL_180) / ROUGH_MUL;
-                }
-                else
-                    throw new InvalidOperationException("Incorrect data.");
+                throw new InvalidOperationException("Incorrect data.");
             }
-            else if (data >= INTERIM_MIN_VALUE)
-            {
-                data -= INTERIM_SHIFT_DECODE;
-                latitude = (long)(data / GOOD_MUL_360 - INTERIM_SUB_DECODE) / GOOD_MUL;
-                longitude = (long)(data % GOOD_MUL_360 - GOOD_MUL_180) / GOOD_MUL;
-            }
-            else if (data >= ANTARCTIC_MIN_VALUE)
-            {
-                data -= ANTARCTIC_SHIFT_DECODE;
-                latitude = (long)(data / SANE_MUL_360 - ANTARCTIC_SUB_DECODE) / GOOD_MUL;
-                longitude = (long)(data % SANE_MUL_360 - SANE_MUL_180) / SANE_MUL;
-            }
-            else
-            {
-                latitude = (long)(data / ROUGH_MUL_360 - SOUTHERN_SUB_DECODE) / GOOD_MUL;
-                longitude = (long)(data % ROUGH_MUL_360 - ROUGH_MUL_180) / ROUGH_MUL;
-            }
-
-            return (latitude, longitude);
         }
     }
 
-    public double Latitude => Coordinates.Latitude;
+    public double Longitude
+    {
+        get
+        {
+            unchecked
+            {
+                if (_data >= CENTRAL_MIN_DATA)
+                {
+                    if (_data < AURORA_MIN_DATA)
+                    {
+                        return (long)((_data - CENTRAL_SHIFT_DECODE) % EXACT_MUL_360 - EXACT_MUL_180) / EXACT_MUL;
+                    }
+                    else if (_data < ARCTIC_MIN_DATA)
+                    {
+                        return (long)((_data - AURORA_SHIFT_DECODE) % GOOD_MUL_360 - GOOD_MUL_180) / GOOD_MUL;
+                    }
+                    else if (_data < NORTHERN_MIN_DATA)
+                    {
+                        return (long)((_data - ARCTIC_SHIFT_DECODE) % SANE_MUL_360 - SANE_MUL_180) / SANE_MUL;
+                    }
+                    else if (_data <= NORTHERN_MAX_DATA)
+                    {
+                        return (long)((_data - NORTHERN_SHIFT_DECODE) % ROUGH_MUL_360 - ROUGH_MUL_180) / ROUGH_MUL;
+                    }
+                }
+                else if (_data >= INTERIM_MIN_DATA)
+                {
+                    return (long)((_data - INTERIM_SHIFT_DECODE) % GOOD_MUL_360 - GOOD_MUL_180) / GOOD_MUL;
+                }
+                else if (_data >= ANTARCTIC_MIN_DATA)
+                {
+                    return (long)((_data - ANTARCTIC_SHIFT_DECODE) % SANE_MUL_360 - SANE_MUL_180) / SANE_MUL;
+                }
+                else if (_data >= SOUTHERN_MIN_DATA)
+                {
+                    return (long)((_data - SOUTHERN_SHIFT_DECODE) % ROUGH_MUL_360 - ROUGH_MUL_180) / ROUGH_MUL;
+                }
 
-    public double Longitude => Coordinates.Longitude;
+                throw new InvalidOperationException("Incorrect data.");
+            }
+        }
+    }
 
-    public static LatLng64 FromData(ulong data) => new(data);
+    public static LatLng64 FromData(ulong data)
+    {
+        return new LatLng64(data);
+    }
 
     public override string ToString()
     {
-        var (latitude, longitude) = Coordinates;
-        return $"{latitude}, {longitude}";
+        return $"{{{Latitude}, {Longitude}}}";
     }
 
     #region IEquatable

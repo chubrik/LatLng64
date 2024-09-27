@@ -47,14 +47,14 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
     private const ulong ANTARCTIC_SIZE = (INTERIM_BOTTOM - ANTARCTIC_BOTTOM) * (ulong)GOOD_MUL * SANE_MUL_360;
     private const ulong SOUTHERN_SIZE = ((ANTARCTIC_BOTTOM - SOUTHERN_BOTTOM) * (ulong)GOOD_MUL + 1) * ROUGH_MUL_360;
 
-    private const ulong NORTHERN_MAX_DATA = NORTHERN_MIN_DATA + NORTHERN_SIZE - 1;  //  18 431 999 993 520 000 000   0x_FFCB_9E56_51C3_0C00
-    private const ulong NORTHERN_MIN_DATA = ARCTIC_MIN_DATA + ARCTIC_SIZE;          //  18 413 999 993 160 000 001   0x_FF8B_AB6E_A658_E201
-    private const ulong ARCTIC_MIN_DATA = AURORA_MIN_DATA + AURORA_SIZE;            //  18 179 999 993 160 000 001   0x_FC4C_55AC_08E7_E201
-    private const ulong AURORA_MIN_DATA = CENTRAL_MIN_DATA + CENTRAL_SIZE;          //  17 315 999 993 160 000 001   0x_F04E_CA3F_EAF7_E201
-    private const ulong CENTRAL_MIN_DATA = INTERIM_MIN_DATA + INTERIM_SIZE;         //     612 000 000 360 000 001   0x_087E_42C1_FFFF_2A01
-    private const ulong INTERIM_MIN_DATA = ANTARCTIC_MIN_DATA + ANTARCTIC_SIZE;     //     468 000 000 360 000 001   0x_067E_AB85_5057_2A01
-    private const ulong ANTARCTIC_MIN_DATA = SOUTHERN_MIN_DATA + SOUTHERN_SIZE;     //      18 000 000 360 000 001   0x_003F_F2E7_AB6A_2A01
-    private const ulong SOUTHERN_MIN_DATA = 1;                                      //                           1   0x_0000_0000_0000_0001
+    private const ulong NORTHERN_MAX_DATA = NORTHERN_MIN_DATA + NORTHERN_SIZE - 1;  //  18 432 000 000 359 999 999   0x_FFCB_9E57_E975_29FF
+    private const ulong NORTHERN_MIN_DATA = ARCTIC_MIN_DATA + ARCTIC_SIZE;          //  18 414 000 000 000 000 000   0x_FF8B_AB70_3E0B_0000
+    private const ulong ARCTIC_MIN_DATA = AURORA_MIN_DATA + AURORA_SIZE;            //  18 180 000 000 000 000 000   0x_FC4C_55AD_A09A_0000
+    private const ulong AURORA_MIN_DATA = CENTRAL_MIN_DATA + CENTRAL_SIZE;          //  17 316 000 000 000 000 000   0x_F04E_CA41_82AA_0000
+    private const ulong CENTRAL_MIN_DATA = INTERIM_MIN_DATA + INTERIM_SIZE;         //     612 000 007 200 000 000   0x_087E_42C3_97B1_4800
+    private const ulong INTERIM_MIN_DATA = ANTARCTIC_MIN_DATA + ANTARCTIC_SIZE;     //     468 000 007 200 000 000   0x_067E_AB86_E809_4800
+    private const ulong ANTARCTIC_MIN_DATA = SOUTHERN_MIN_DATA + SOUTHERN_SIZE;     //      18 000 007 200 000 000   0x_003F_F2E9_431C_4800
+    private const ulong SOUTHERN_MIN_DATA = 6_840_000_000;                          //               6 840 000 000   0x_0000_0001_97B2_1E00
 
     private const double NORTHERN_BOTTOM_ENCODE = NORTHERN_BOTTOM - GOOD_ERROR;                    //  84.99999995
     private const double ARCTIC_BOTTOM_ENCODE = ARCTIC_BOTTOM - EXACT_ERROR;                       //  71.999999975
@@ -173,90 +173,65 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
         }
     }
 
-    public double Latitude
+    public (double Latitude, double Longitude) GetCoordinates()
     {
-        get
+        double latitude;
+        double longitude;
+
+        unchecked
         {
-            unchecked
+            if (_data >= CENTRAL_MIN_DATA)
             {
-                if (_data >= CENTRAL_MIN_DATA)
+                if (_data < AURORA_MIN_DATA)
                 {
-                    if (_data < AURORA_MIN_DATA)
-                    {
-                        return (long)((_data - CENTRAL_SHIFT_DECODE) / EXACT_MUL_360 - CENTRAL_SUB_DECODE) / EXACT_MUL;
-                    }
-                    else if (_data < ARCTIC_MIN_DATA)
-                    {
-                        return ((_data - AURORA_SHIFT_DECODE) / GOOD_MUL_360 + AURORA_ADD_DECODE) / EXACT_MUL;
-                    }
-                    else if (_data < NORTHERN_MIN_DATA)
-                    {
-                        return ((_data - ARCTIC_SHIFT_DECODE) / SANE_MUL_360 + ARCTIC_ADD_DECODE) / GOOD_MUL;
-                    }
-                    else if (_data <= NORTHERN_MAX_DATA)
-                    {
-                        return ((_data - NORTHERN_SHIFT_DECODE) / ROUGH_MUL_360 + NORTHERN_ADD_DECODE) / GOOD_MUL;
-                    }
+                    var (quotinent, reminder) = Math.DivRem(_data - CENTRAL_SHIFT_DECODE, EXACT_MUL_360);
+                    latitude = (long)(quotinent - CENTRAL_SUB_DECODE) / EXACT_MUL;
+                    longitude = (long)(reminder - EXACT_MUL_180) / EXACT_MUL;
                 }
-                else if (_data >= INTERIM_MIN_DATA)
+                else if (_data < ARCTIC_MIN_DATA)
                 {
-                    return (long)((_data - INTERIM_SHIFT_DECODE) / GOOD_MUL_360 - INTERIM_SUB_DECODE) / GOOD_MUL;
+                    var (quotinent, reminder) = Math.DivRem(_data - AURORA_SHIFT_DECODE, GOOD_MUL_360);
+                    latitude = (quotinent + AURORA_ADD_DECODE) / EXACT_MUL;
+                    longitude = (long)(reminder - GOOD_MUL_180) / GOOD_MUL;
                 }
-                else if (_data >= ANTARCTIC_MIN_DATA)
+                else if (_data < NORTHERN_MIN_DATA)
                 {
-                    return (long)((_data - ANTARCTIC_SHIFT_DECODE) / SANE_MUL_360 - ANTARCTIC_SUB_DECODE) / GOOD_MUL;
+                    var (quotinent, reminder) = Math.DivRem(_data - ARCTIC_SHIFT_DECODE, SANE_MUL_360);
+                    latitude = (quotinent + ARCTIC_ADD_DECODE) / GOOD_MUL;
+                    longitude = (long)(reminder - SANE_MUL_180) / SANE_MUL;
                 }
-                else if (_data >= SOUTHERN_MIN_DATA)
+                else if (_data <= NORTHERN_MAX_DATA)
                 {
-                    return (long)((_data - SOUTHERN_SHIFT_DECODE) / ROUGH_MUL_360 - SOUTHERN_SUB_DECODE) / GOOD_MUL;
+                    var (quotinent, reminder) = Math.DivRem(_data - NORTHERN_SHIFT_DECODE, ROUGH_MUL_360);
+                    latitude = (quotinent + NORTHERN_ADD_DECODE) / GOOD_MUL;
+                    longitude = (long)(reminder - ROUGH_MUL_180) / ROUGH_MUL;
                 }
-
-                throw new InvalidOperationException("Incorrect data.");
+                else
+                    throw new InvalidOperationException("Incorrect data.");
             }
-        }
-    }
-
-    public double Longitude
-    {
-        get
-        {
-            unchecked
+            else if (_data >= INTERIM_MIN_DATA)
             {
-                if (_data >= CENTRAL_MIN_DATA)
-                {
-                    if (_data < AURORA_MIN_DATA)
-                    {
-                        return (long)((_data - CENTRAL_SHIFT_DECODE) % EXACT_MUL_360 - EXACT_MUL_180) / EXACT_MUL;
-                    }
-                    else if (_data < ARCTIC_MIN_DATA)
-                    {
-                        return (long)((_data - AURORA_SHIFT_DECODE) % GOOD_MUL_360 - GOOD_MUL_180) / GOOD_MUL;
-                    }
-                    else if (_data < NORTHERN_MIN_DATA)
-                    {
-                        return (long)((_data - ARCTIC_SHIFT_DECODE) % SANE_MUL_360 - SANE_MUL_180) / SANE_MUL;
-                    }
-                    else if (_data <= NORTHERN_MAX_DATA)
-                    {
-                        return (long)((_data - NORTHERN_SHIFT_DECODE) % ROUGH_MUL_360 - ROUGH_MUL_180) / ROUGH_MUL;
-                    }
-                }
-                else if (_data >= INTERIM_MIN_DATA)
-                {
-                    return (long)((_data - INTERIM_SHIFT_DECODE) % GOOD_MUL_360 - GOOD_MUL_180) / GOOD_MUL;
-                }
-                else if (_data >= ANTARCTIC_MIN_DATA)
-                {
-                    return (long)((_data - ANTARCTIC_SHIFT_DECODE) % SANE_MUL_360 - SANE_MUL_180) / SANE_MUL;
-                }
-                else if (_data >= SOUTHERN_MIN_DATA)
-                {
-                    return (long)((_data - SOUTHERN_SHIFT_DECODE) % ROUGH_MUL_360 - ROUGH_MUL_180) / ROUGH_MUL;
-                }
-
-                throw new InvalidOperationException("Incorrect data.");
+                var (quotinent, reminder) = Math.DivRem(_data - INTERIM_SHIFT_DECODE, GOOD_MUL_360);
+                latitude = (long)(quotinent - INTERIM_SUB_DECODE) / GOOD_MUL;
+                longitude = (long)(reminder - GOOD_MUL_180) / GOOD_MUL;
             }
+            else if (_data >= ANTARCTIC_MIN_DATA)
+            {
+                var (quotinent, reminder) = Math.DivRem(_data - ANTARCTIC_SHIFT_DECODE, SANE_MUL_360);
+                latitude = (long)(quotinent - ANTARCTIC_SUB_DECODE) / GOOD_MUL;
+                longitude = (long)(reminder - SANE_MUL_180) / SANE_MUL;
+            }
+            else if (_data >= SOUTHERN_MIN_DATA)
+            {
+                var (quotinent, reminder) = Math.DivRem(_data - SOUTHERN_SHIFT_DECODE, ROUGH_MUL_360);
+                latitude = (long)(quotinent - SOUTHERN_SUB_DECODE) / GOOD_MUL;
+                longitude = (long)(reminder - ROUGH_MUL_180) / ROUGH_MUL;
+            }
+            else
+                throw new InvalidOperationException("Incorrect data.");
         }
+
+        return (latitude, longitude);
     }
 
     public static LatLng64 FromData(ulong data)
@@ -266,7 +241,8 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
 
     public override string ToString()
     {
-        return $"{{{Latitude}, {Longitude}}}";
+        var (latitude, longitude) = GetCoordinates();
+        return $"{{{latitude}, {longitude}}}";
     }
 
     #region IEquatable

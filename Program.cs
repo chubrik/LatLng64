@@ -130,7 +130,7 @@ void Check(double latIn, double latCheck, double lngIn, double lngCheck)
 
 void CheckBase(LatLng64 latLng, double latCheck, double lngCheck)
 {
-    var (latOut, lngOut) = (latLng.Latitude, latLng.Longitude);
+    var (latOut, lngOut) = latLng.GetCoordinates();
 
     if (latOut != latCheck)
         throw new InvalidOperationException();

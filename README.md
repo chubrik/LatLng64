@@ -16,4 +16,4 @@ and provides accuracy sufficient for the vast majority of applications.
   Step up to 1.7 m is unacceptable for most applications.
 * The **Float64** pair is the traditional solution.
   But it takes up a huge 128 bits and gives meaningless sub-nanometer precision.
-* The **Int32** pair can give uniform accuracy of ±5.6 mm. This is still twice as bad as `LatLng64`.
+* The **Int32** pair can give uniform accuracy of ±5.6 mm. It gives four times fewer values ​​per area than `LatLng64`.

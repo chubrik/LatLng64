@@ -2,14 +2,14 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net7.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>Chubrik.$(MSBuildProjectName)</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="XConsole" Version="1.4.*" />
+    <PackageReference Include="XConsole" Version="1.5.*" />
     <Using Include="Chubrik.XConsole.XConsole" Alias="Console" />
   </ItemGroup>
 

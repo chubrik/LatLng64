@@ -1,6 +1,11 @@
 ﻿namespace Chubrik.LatLng64;
 
-public readonly struct LatLng64 : IEquatable<LatLng64>
+using System;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.Runtime.CompilerServices;
+
+public readonly struct LatLng64 : IEquatable<LatLng64>, IFormattable, IParsable<LatLng64>
 {
     #region Constants
 
@@ -94,7 +99,7 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
     private LatLng64(ulong data)
     {
         if (data < SOUTHERN_MIN_DATA || data > NORTHERN_MAX_DATA)
-            throw new ArgumentOutOfRangeException(nameof(data));
+            throw CreateInvalidDataException();
 
         _data = data;
     }
@@ -119,7 +124,8 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
                         longitude = -180;
 
                     _data = CENTRAL_SHIFT_ENCODE + (ulong)(
-                        (long)Math.Round(latitude * EXACT_MUL) * EXACT_MUL_360 + (long)Math.Round(longitude * EXACT_MUL));
+                        (long)Math.Round(latitude * EXACT_MUL, MidpointRounding.AwayFromZero) * EXACT_MUL_360 +
+                        (long)Math.Round(longitude * EXACT_MUL, MidpointRounding.AwayFromZero));
                 }
                 else if (latitude < ARCTIC_BOTTOM_ENCODE)
                 {
@@ -127,7 +133,8 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
                         longitude = -180;
 
                     _data = AURORA_SHIFT_ENCODE + (ulong)(
-                        (long)Math.Round(latitude * EXACT_MUL) * GOOD_MUL_360 + (long)Math.Round(longitude * GOOD_MUL));
+                        (long)Math.Round(latitude * EXACT_MUL, MidpointRounding.AwayFromZero) * GOOD_MUL_360 +
+                        (long)Math.Round(longitude * GOOD_MUL, MidpointRounding.AwayFromZero));
                 }
                 else if (latitude < NORTHERN_BOTTOM_ENCODE)
                 {
@@ -135,7 +142,8 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
                         longitude = -180;
 
                     _data = ARCTIC_SHIFT_ENCODE + (ulong)(
-                        (long)Math.Round(latitude * GOOD_MUL) * SANE_MUL_360 + (long)Math.Round(longitude * SANE_MUL));
+                        (long)Math.Round(latitude * GOOD_MUL, MidpointRounding.AwayFromZero) * SANE_MUL_360 +
+                        (long)Math.Round(longitude * SANE_MUL, MidpointRounding.AwayFromZero));
                 }
                 else
                 {
@@ -143,7 +151,8 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
                         longitude = -180;
 
                     _data = NORTHERN_SHIFT_ENCODE + (ulong)(
-                        (long)Math.Round(latitude * GOOD_MUL) * ROUGH_MUL_360 + (long)Math.Round(longitude * ROUGH_MUL));
+                        (long)Math.Round(latitude * GOOD_MUL, MidpointRounding.AwayFromZero) * ROUGH_MUL_360 +
+                        (long)Math.Round(longitude * ROUGH_MUL, MidpointRounding.AwayFromZero));
                 }
             }
             else if (latitude > INTERIM_BOTTOM_ENCODE)
@@ -152,7 +161,8 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
                     longitude = -180;
 
                 _data = INTERIM_SHIFT_ENCODE + (ulong)(
-                    (long)Math.Round(latitude * GOOD_MUL) * GOOD_MUL_360 + (long)Math.Round(longitude * GOOD_MUL));
+                    (long)Math.Round(latitude * GOOD_MUL, MidpointRounding.AwayFromZero) * GOOD_MUL_360 +
+                    (long)Math.Round(longitude * GOOD_MUL, MidpointRounding.AwayFromZero));
             }
             else if (latitude > ANTARCTIC_BOTTOM_ENCODE)
             {
@@ -160,7 +170,8 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
                     longitude = -180;
 
                 _data = ANTARCTIC_SHIFT_ENCODE + (ulong)(
-                    (long)Math.Round(latitude * GOOD_MUL) * SANE_MUL_360 + (long)Math.Round(longitude * SANE_MUL));
+                    (long)Math.Round(latitude * GOOD_MUL, MidpointRounding.AwayFromZero) * SANE_MUL_360 +
+                    (long)Math.Round(longitude * SANE_MUL, MidpointRounding.AwayFromZero));
             }
             else
             {
@@ -168,7 +179,8 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
                     longitude = -180;
 
                 _data = SOUTHERN_SHIFT_ENCODE + (ulong)(
-                    (long)Math.Round(latitude * GOOD_MUL) * ROUGH_MUL_360 + (long)Math.Round(longitude * ROUGH_MUL));
+                    (long)Math.Round(latitude * GOOD_MUL, MidpointRounding.AwayFromZero) * ROUGH_MUL_360 +
+                    (long)Math.Round(longitude * ROUGH_MUL, MidpointRounding.AwayFromZero));
             }
         }
     }
@@ -207,7 +219,7 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
                     longitude = (long)(reminder - ROUGH_MUL_180) / ROUGH_MUL;
                 }
                 else
-                    throw new InvalidOperationException("Incorrect data.");
+                    throw CreateInvalidDataException();
             }
             else if (_data >= INTERIM_MIN_DATA)
             {
@@ -228,10 +240,15 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
                 longitude = (long)(reminder - ROUGH_MUL_180) / ROUGH_MUL;
             }
             else
-                throw new InvalidOperationException("Incorrect data.");
+                throw CreateInvalidDataException();
         }
 
         return (latitude, longitude);
+    }
+
+    public void Deconstruct(out double latitude, out double longitude)
+    {
+        (latitude, longitude) = GetCoordinates();
     }
 
     public static LatLng64 FromData(ulong data)
@@ -239,10 +256,10 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
         return new LatLng64(data);
     }
 
-    public override string ToString()
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static InvalidOperationException CreateInvalidDataException()
     {
-        var (latitude, longitude) = GetCoordinates();
-        return $"{{{latitude}, {longitude}}}";
+        return new InvalidOperationException("Invalid data.");
     }
 
     #region IEquatable
@@ -256,6 +273,79 @@ public readonly struct LatLng64 : IEquatable<LatLng64>
     public static bool operator ==(LatLng64 left, LatLng64 right) => left.Equals(right);
 
     public static bool operator !=(LatLng64 left, LatLng64 right) => !(left == right);
+
+    #endregion
+
+    #region IFormattable
+
+    public override string ToString()
+    {
+        return ToString(format: null, CultureInfo.InvariantCulture);
+    }
+
+    public string ToString(string? format, IFormatProvider? formatProvider = null)
+    {
+        var (latitude, longitude) = GetCoordinates();
+        formatProvider ??= CultureInfo.InvariantCulture;
+        var formatInfo = NumberFormatInfo.GetInstance(formatProvider);
+        var separator = formatInfo.NumberDecimalSeparator == "," ? "; " : ", ";
+        var latStr = latitude.ToString(format ?? "G17", formatProvider);
+        var lngStr = longitude.ToString(format ?? "G17", formatProvider);
+        return $"{latStr}{separator}{lngStr}";
+    }
+
+    #endregion
+
+    #region IParsable
+
+    public static LatLng64 Parse(string s, IFormatProvider? provider = null)
+    {
+        ArgumentNullException.ThrowIfNull(s);
+
+        if (TryParse(s, provider, out var result))
+            return result;
+
+        throw new FormatException(
+            "The input string was not in a correct format. Expected format: 'latitude, longitude'.");
+    }
+
+    public static bool TryParse([NotNullWhen(true)] string? s, IFormatProvider? provider, out LatLng64 result)
+    {
+        result = default;
+
+        if (string.IsNullOrWhiteSpace(s))
+            return false;
+
+        var span = s.AsSpan();
+        int sepIndex = span.IndexOf(';');
+        var isSemicolon = sepIndex != -1;
+
+        if (!isSemicolon)
+            sepIndex = span.IndexOf(',');
+
+        if (sepIndex == -1)
+            return false;
+
+        var latSpan = span[..sepIndex];
+        var lngSpan = span[(sepIndex + 1)..];
+        provider ??= isSemicolon ? CultureInfo.CurrentCulture : CultureInfo.InvariantCulture;
+
+        if (double.TryParse(latSpan, NumberStyles.Float, provider, out var latitude) &&
+            double.TryParse(lngSpan, NumberStyles.Float, provider, out var longitude))
+        {
+            try
+            {
+                result = new LatLng64(latitude, longitude);
+                return true;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
 
     #endregion
 }

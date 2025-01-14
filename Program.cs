@@ -1,4 +1,5 @@
 ﻿using Chubrik.LatLng64;
+using System;
 
 // Northern
 CheckRough(90.0, 90.0);
@@ -55,7 +56,9 @@ CheckRough((-89.99999995).Inc(), -89.9999999);
 CheckRough(-89.99999995, -90.0);
 CheckRough(-90.0, -90.0);
 
-Console.WriteLine("G`All tests passed.");
+Console.ForegroundColor = ConsoleColor.Green;
+Console.WriteLine("All tests passed.");
+Console.ResetColor();
 return;
 
 void CheckExact(double latIn, double latCheck)

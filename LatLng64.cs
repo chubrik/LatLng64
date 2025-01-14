@@ -1,5 +1,7 @@
 ﻿namespace Chubrik.LatLng64;
 
+using System;
+
 public readonly struct LatLng64 : IEquatable<LatLng64>
 {
     #region Constants

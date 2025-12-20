@@ -7,8 +7,11 @@ using System.Runtime.CompilerServices;
 
 public readonly struct LatLng64 : IEquatable<LatLng64>, IFormattable, IParsable<LatLng64>
 {
-    #region Constants
+    #region Private Constants
 
+    // Approximate boundaries of geographical zones. The AURORA and CENTRAL zones are considered inhabited, 
+    // while others are not. Each zone applies specific coordinate rounding rules based on population density 
+    // and its unique spherical geometry characteristics.
     private const int NORTHERN_TOP = 90;
     private const int NORTHERN_BOTTOM = 85;
     private const int ARCTIC_BOTTOM = 72;
@@ -18,32 +21,38 @@ public readonly struct LatLng64 : IEquatable<LatLng64>, IFormattable, IParsable<
     private const int ANTARCTIC_BOTTOM = -85;
     private const int SOUTHERN_BOTTOM = -90;
 
+    // Number of discrete values per degree for each precision level.
     private const double EXACT_MUL = 20_000_000;
     private const double GOOD_MUL = 10_000_000;
     private const double SANE_MUL = 5_000_000;
     private const double ROUGH_MUL = 1_000_000;
 
+    // The value range size within the internal _data field for a single latitude unit, based on the precision level.
     private const ulong EXACT_MUL_180 = 180 * (ulong)EXACT_MUL;
     private const ulong GOOD_MUL_180 = 180 * (ulong)GOOD_MUL;
     private const ulong SANE_MUL_180 = 180 * (ulong)SANE_MUL;
     private const ulong ROUGH_MUL_180 = 180 * (ulong)ROUGH_MUL;
 
+    // Multiplier coefficient used during coordinate encoding and decoding for each precision level.
     private const long EXACT_MUL_360 = 360 * (long)EXACT_MUL;
     private const long GOOD_MUL_360 = 360 * (long)GOOD_MUL;
     private const long SANE_MUL_360 = 360 * (long)SANE_MUL;
     private const long ROUGH_MUL_360 = 360 * (long)ROUGH_MUL;
 
+    // Maximum error in degrees for each precision level.
     private const double EXACT_ERROR = 0.5 / EXACT_MUL;  //  0.000000025
     private const double GOOD_ERROR = 0.5 / GOOD_MUL;    //  0.00000005
     private const double SANE_ERROR = 0.5 / SANE_MUL;    //  0.0000001
     private const double ROUGH_ERROR = 0.5 / ROUGH_MUL;  //  0.0000005
 
+    // Maximum allowable input longitude in degrees for each geographical zone.
     private const double DOUBLE_BIT_ERROR = 1e-14;                                        //    0.00000000000001
     private const double EXACT_MAX_LONGITUDE = 180 - EXACT_ERROR - 2 * DOUBLE_BIT_ERROR;  //  179.99999997499998
     private const double GOOD_MAX_LONGITUDE = 180 - GOOD_ERROR - 2 * DOUBLE_BIT_ERROR;    //  179.99999994999996
     private const double SANE_MAX_LONGITUDE = 180 - SANE_ERROR - 2 * DOUBLE_BIT_ERROR;    //  179.99999989999998
     private const double ROUGH_MAX_LONGITUDE = 180 - ROUGH_ERROR - 2 * DOUBLE_BIT_ERROR;  //  179.99999949999997
 
+    // Total value range size within the internal _data field for each geographical zone.
     private const ulong NORTHERN_SIZE = ((NORTHERN_TOP - NORTHERN_BOTTOM) * (ulong)GOOD_MUL + 1) * ROUGH_MUL_360;
     private const ulong ARCTIC_SIZE = (NORTHERN_BOTTOM - ARCTIC_BOTTOM) * (ulong)GOOD_MUL * SANE_MUL_360;
     private const ulong AURORA_SIZE = (ARCTIC_BOTTOM - AURORA_BOTTOM) * (ulong)EXACT_MUL * GOOD_MUL_360;
@@ -52,6 +61,7 @@ public readonly struct LatLng64 : IEquatable<LatLng64>, IFormattable, IParsable<
     private const ulong ANTARCTIC_SIZE = (INTERIM_BOTTOM - ANTARCTIC_BOTTOM) * (ulong)GOOD_MUL * SANE_MUL_360;
     private const ulong SOUTHERN_SIZE = ((ANTARCTIC_BOTTOM - SOUTHERN_BOTTOM) * (ulong)GOOD_MUL + 1) * ROUGH_MUL_360;
 
+    // Minimum value (offset) of the internal _data field for each geographical zone.
     private const ulong NORTHERN_MAX_DATA = NORTHERN_MIN_DATA + NORTHERN_SIZE - 1;  //  18 432 000 000 359 999 999   0x_FFCB_9E57_E975_29FF
     private const ulong NORTHERN_MIN_DATA = ARCTIC_MIN_DATA + ARCTIC_SIZE;          //  18 414 000 000 000 000 000   0x_FF8B_AB70_3E0B_0000
     private const ulong ARCTIC_MIN_DATA = AURORA_MIN_DATA + AURORA_SIZE;            //  18 180 000 000 000 000 000   0x_FC4C_55AD_A09A_0000
@@ -61,6 +71,7 @@ public readonly struct LatLng64 : IEquatable<LatLng64>, IFormattable, IParsable<
     private const ulong ANTARCTIC_MIN_DATA = SOUTHERN_MIN_DATA + SOUTHERN_SIZE;     //      18 000 007 200 000 000   0x_003F_F2E9_431C_4800
     private const ulong SOUTHERN_MIN_DATA = 6_840_000_000;                          //               6 840 000 000   0x_0000_0001_97B2_1E00
 
+    // Minimum allowable input latitude in degrees for each geographical zone.
     private const double NORTHERN_BOTTOM_ENCODE = NORTHERN_BOTTOM - GOOD_ERROR;                    //  84.99999995
     private const double ARCTIC_BOTTOM_ENCODE = ARCTIC_BOTTOM - EXACT_ERROR;                       //  71.999999975
     private const double AURORA_BOTTOM_ENCODE = AURORA_BOTTOM - EXACT_ERROR - DOUBLE_BIT_ERROR;    //  59.999999974999994
@@ -68,6 +79,7 @@ public readonly struct LatLng64 : IEquatable<LatLng64>, IFormattable, IParsable<
     private const double INTERIM_BOTTOM_ENCODE = INTERIM_BOTTOM + GOOD_ERROR + DOUBLE_BIT_ERROR;   // -59.999999949999996
     private const double ANTARCTIC_BOTTOM_ENCODE = ANTARCTIC_BOTTOM + GOOD_ERROR;                  // -84.99999995
 
+    // Mathematical shift (offset) used when calculating the internal _data field for each zone.
     private const ulong NORTHERN_SHIFT_ENCODE = NORTHERN_MIN_DATA - NORTHERN_BOTTOM * (ulong)GOOD_MUL * ROUGH_MUL_360 + ROUGH_MUL_180;
     private const ulong ARCTIC_SHIFT_ENCODE = ARCTIC_MIN_DATA - ARCTIC_BOTTOM * (ulong)GOOD_MUL * SANE_MUL_360 + SANE_MUL_180;
     private const ulong AURORA_SHIFT_ENCODE = AURORA_MIN_DATA - AURORA_BOTTOM * (ulong)EXACT_MUL * GOOD_MUL_360 + GOOD_MUL_180;
@@ -76,6 +88,7 @@ public readonly struct LatLng64 : IEquatable<LatLng64>, IFormattable, IParsable<
     private const ulong ANTARCTIC_SHIFT_ENCODE = ANTARCTIC_MIN_DATA + (-ANTARCTIC_BOTTOM * (ulong)GOOD_MUL - 1) * SANE_MUL_360 + SANE_MUL_180;
     private const ulong SOUTHERN_SHIFT_ENCODE = SOUTHERN_MIN_DATA + (-SOUTHERN_BOTTOM) * (ulong)GOOD_MUL * ROUGH_MUL_360 + ROUGH_MUL_180;
 
+    // Mathematical shift (offset) used during coordinate recovery for each geographical zone.
     private const ulong NORTHERN_SHIFT_DECODE = NORTHERN_MIN_DATA;
     private const ulong ARCTIC_SHIFT_DECODE = ARCTIC_MIN_DATA;
     private const ulong AURORA_SHIFT_DECODE = AURORA_MIN_DATA;
@@ -84,6 +97,7 @@ public readonly struct LatLng64 : IEquatable<LatLng64>, IFormattable, IParsable<
     private const ulong ANTARCTIC_SHIFT_DECODE = ANTARCTIC_MIN_DATA - SANE_MUL_360;
     private const ulong SOUTHERN_SHIFT_DECODE = SOUTHERN_MIN_DATA;
 
+    // Mathematical shift (offset) used during latitude reconstruction for each geographical zone.
     private const ulong NORTHERN_ADD_DECODE = (ulong)(NORTHERN_BOTTOM * GOOD_MUL);
     private const ulong ARCTIC_ADD_DECODE = (ulong)(ARCTIC_BOTTOM * GOOD_MUL);
     private const ulong AURORA_ADD_DECODE = (ulong)(AURORA_BOTTOM * EXACT_MUL);

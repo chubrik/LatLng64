@@ -1,16 +1,31 @@
-﻿namespace Chubrik.LatLng64;
+namespace Chubrik.LatLng64;
 
 using System;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 
-public readonly struct LatLng64 : IEquatable<LatLng64>, IFormattable, IParsable<LatLng64>
+/// <summary>
+/// A geographic coordinate (latitude, longitude) packed into 64 bits with variable per-zone
+/// precision — down to ±2.8 mm near populated latitudes, coarser toward the poles.
+/// The <see langword="default"/> value is intentionally invalid: <see cref="GetCoordinates"/>
+/// throws on it, surfacing uninitialized state instead of silently mapping to a real point.
+/// </summary>
+[DebuggerDisplay("{DebuggerDisplay,nq}")]
+public readonly struct LatLng64 :
+    IEquatable<LatLng64>, IComparable, IComparable<LatLng64>, IFormattable
+#if NET7_0_OR_GREATER
+    , ISpanFormattable, IParsable<LatLng64>, ISpanParsable<LatLng64>
+#endif
+#if NET8_0_OR_GREATER
+    , IUtf8SpanFormattable, IUtf8SpanParsable<LatLng64>
+#endif
 {
     #region Private Constants
 
-    // Approximate boundaries of geographical zones. The AURORA and CENTRAL zones are considered inhabited, 
-    // while others are not. Each zone applies specific coordinate rounding rules based on population density 
+    // Approximate boundaries of geographical zones. The AURORA and CENTRAL zones are considered inhabited,
+    // while others are not. Each zone applies specific coordinate rounding rules based on population density
     // and its unique spherical geometry characteristics.
     private const int NORTHERN_TOP = 90;
     private const int NORTHERN_BOTTOM = 85;
@@ -106,28 +121,60 @@ public readonly struct LatLng64 : IEquatable<LatLng64>, IFormattable, IParsable<
     private const ulong ANTARCTIC_SUB_DECODE = (ulong)(-ANTARCTIC_BOTTOM * GOOD_MUL);
     private const ulong SOUTHERN_SUB_DECODE = (ulong)(-SOUTHERN_BOTTOM * GOOD_MUL);
 
+    // Error messages for out-of-range inputs.
+    private const string LATITUDE_RANGE_MESSAGE = "Latitude must be between -90 and +90 inclusive.";
+    private const string LONGITUDE_RANGE_MESSAGE = "Longitude must be between -180 and +180 inclusive.";
+    private const string DATA_RANGE_MESSAGE = "Data is outside the valid encoding range.";
+
     #endregion
+
+    #region Construction, Encoding
 
     private readonly ulong _data;
 
+    /// <summary>
+    /// The raw 64-bit encoding. Stable across processes; suitable for database persistence.
+    /// Reconstruct via <see cref="FromData(ulong)"/>.
+    /// </summary>
+    public ulong Data => _data;
+
+    // Trusted: caller guarantees the value is a valid encoding. Public entry points (FromData)
+    // validate before invoking; Encode produces only in-range values.
     private LatLng64(ulong data)
     {
-        if (data < SOUTHERN_MIN_DATA || data > NORTHERN_MAX_DATA)
-            throw CreateInvalidDataException();
-
         _data = data;
     }
 
+    /// <summary>Creates a <see cref="LatLng64"/> from latitude and longitude in degrees.</summary>
+    /// <param name="latitude">Degrees in [-90, +90] inclusive.</param>
+    /// <param name="longitude">Degrees in [-180, +180] inclusive;
+    /// <c>-180</c> and <c>+180</c> are treated as the same meridian.</param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// A coordinate is outside the allowed range, NaN, or infinite.</exception>
     public LatLng64(double latitude, double longitude)
     {
-        if (!(latitude >= -90 && latitude <= 90))
-            throw new ArgumentOutOfRangeException(nameof(latitude),
-                $"Requires a number between -90 and +90 inclusive, but the actual value is: {latitude}");
+        if (!IsValidLatitude(latitude))
+            throw CreateOutOfRangeException(nameof(latitude), latitude, LATITUDE_RANGE_MESSAGE);
 
-        if (!(longitude >= -180 && longitude <= 180))
-            throw new ArgumentOutOfRangeException(nameof(longitude),
-                $"Requires a number between -180 and +180 inclusive, but the actual value is: {longitude}");
+        if (!IsValidLongitude(longitude))
+            throw CreateOutOfRangeException(nameof(longitude), longitude, LONGITUDE_RANGE_MESSAGE);
 
+        _data = EncodeCore(latitude, longitude);
+    }
+
+    /// <summary>Deconstructs this instance into its latitude and longitude components.</summary>
+    /// <param name="latitude">The decoded latitude in degrees.</param>
+    /// <param name="longitude">The decoded longitude in degrees.</param>
+    /// <exception cref="InvalidOperationException">
+    /// The instance is uninitialized (<see langword="default"/>).</exception>
+    public void Deconstruct(out double latitude, out double longitude)
+    {
+        (latitude, longitude) = GetCoordinates();
+    }
+
+    // Pure encoder. Caller MUST have validated lat in [-90,+90] and lng in [-180,+180].
+    private static ulong EncodeCore(double latitude, double longitude)
+    {
         unchecked
         {
             if (latitude > CENTRAL_BOTTOM_ENCODE)
@@ -137,36 +184,36 @@ public readonly struct LatLng64 : IEquatable<LatLng64>, IFormattable, IParsable<
                     if (longitude > EXACT_MAX_LONGITUDE)
                         longitude = -180;
 
-                    _data = CENTRAL_SHIFT_ENCODE + (ulong)(
-                        (long)Math.Round(latitude * EXACT_MUL, MidpointRounding.AwayFromZero) * EXACT_MUL_360 +
-                        (long)Math.Round(longitude * EXACT_MUL, MidpointRounding.AwayFromZero));
+                    return CENTRAL_SHIFT_ENCODE +
+                        Quantize(latitude * EXACT_MUL) * EXACT_MUL_360 +
+                        Quantize(longitude * EXACT_MUL);
                 }
                 else if (latitude < ARCTIC_BOTTOM_ENCODE)
                 {
                     if (longitude > GOOD_MAX_LONGITUDE)
                         longitude = -180;
 
-                    _data = AURORA_SHIFT_ENCODE + (ulong)(
-                        (long)Math.Round(latitude * EXACT_MUL, MidpointRounding.AwayFromZero) * GOOD_MUL_360 +
-                        (long)Math.Round(longitude * GOOD_MUL, MidpointRounding.AwayFromZero));
+                    return AURORA_SHIFT_ENCODE +
+                        Quantize(latitude * EXACT_MUL) * GOOD_MUL_360 +
+                        Quantize(longitude * GOOD_MUL);
                 }
                 else if (latitude < NORTHERN_BOTTOM_ENCODE)
                 {
                     if (longitude > SANE_MAX_LONGITUDE)
                         longitude = -180;
 
-                    _data = ARCTIC_SHIFT_ENCODE + (ulong)(
-                        (long)Math.Round(latitude * GOOD_MUL, MidpointRounding.AwayFromZero) * SANE_MUL_360 +
-                        (long)Math.Round(longitude * SANE_MUL, MidpointRounding.AwayFromZero));
+                    return ARCTIC_SHIFT_ENCODE +
+                        Quantize(latitude * GOOD_MUL) * SANE_MUL_360 +
+                        Quantize(longitude * SANE_MUL);
                 }
                 else
                 {
                     if (longitude > ROUGH_MAX_LONGITUDE)
                         longitude = -180;
 
-                    _data = NORTHERN_SHIFT_ENCODE + (ulong)(
-                        (long)Math.Round(latitude * GOOD_MUL, MidpointRounding.AwayFromZero) * ROUGH_MUL_360 +
-                        (long)Math.Round(longitude * ROUGH_MUL, MidpointRounding.AwayFromZero));
+                    return NORTHERN_SHIFT_ENCODE +
+                        Quantize(latitude * GOOD_MUL) * ROUGH_MUL_360 +
+                        Quantize(longitude * ROUGH_MUL);
                 }
             }
             else if (latitude > INTERIM_BOTTOM_ENCODE)
@@ -174,35 +221,41 @@ public readonly struct LatLng64 : IEquatable<LatLng64>, IFormattable, IParsable<
                 if (longitude > GOOD_MAX_LONGITUDE)
                     longitude = -180;
 
-                _data = INTERIM_SHIFT_ENCODE + (ulong)(
-                    (long)Math.Round(latitude * GOOD_MUL, MidpointRounding.AwayFromZero) * GOOD_MUL_360 +
-                    (long)Math.Round(longitude * GOOD_MUL, MidpointRounding.AwayFromZero));
+                return INTERIM_SHIFT_ENCODE +
+                    Quantize(latitude * GOOD_MUL) * GOOD_MUL_360 +
+                    Quantize(longitude * GOOD_MUL);
             }
             else if (latitude > ANTARCTIC_BOTTOM_ENCODE)
             {
                 if (longitude > SANE_MAX_LONGITUDE)
                     longitude = -180;
 
-                _data = ANTARCTIC_SHIFT_ENCODE + (ulong)(
-                    (long)Math.Round(latitude * GOOD_MUL, MidpointRounding.AwayFromZero) * SANE_MUL_360 +
-                    (long)Math.Round(longitude * SANE_MUL, MidpointRounding.AwayFromZero));
+                return ANTARCTIC_SHIFT_ENCODE +
+                    Quantize(latitude * GOOD_MUL) * SANE_MUL_360 +
+                    Quantize(longitude * SANE_MUL);
             }
             else
             {
                 if (longitude > ROUGH_MAX_LONGITUDE)
                     longitude = -180;
 
-                _data = SOUTHERN_SHIFT_ENCODE + (ulong)(
-                    (long)Math.Round(latitude * GOOD_MUL, MidpointRounding.AwayFromZero) * ROUGH_MUL_360 +
-                    (long)Math.Round(longitude * ROUGH_MUL, MidpointRounding.AwayFromZero));
+                return SOUTHERN_SHIFT_ENCODE +
+                    Quantize(latitude * GOOD_MUL) * ROUGH_MUL_360 +
+                    Quantize(longitude * ROUGH_MUL);
             }
         }
     }
 
+    /// <summary>
+    /// Decodes the stored value into latitude and longitude in degrees.
+    /// Both axes are computed in one pass.
+    /// </summary>
+    /// <returns>The decoded latitude and longitude.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// The instance is uninitialized (<see langword="default"/>).</exception>
     public (double Latitude, double Longitude) GetCoordinates()
     {
-        double latitude;
-        double longitude;
+        double latitude, longitude;
 
         unchecked
         {
@@ -210,48 +263,48 @@ public readonly struct LatLng64 : IEquatable<LatLng64>, IFormattable, IParsable<
             {
                 if (_data < AURORA_MIN_DATA)
                 {
-                    var (quotinent, reminder) = Math.DivRem(_data - CENTRAL_SHIFT_DECODE, EXACT_MUL_360);
-                    latitude = (long)(quotinent - CENTRAL_SUB_DECODE) / EXACT_MUL;
-                    longitude = (long)(reminder - EXACT_MUL_180) / EXACT_MUL;
+                    var (quotient, remainder) = DivRem(_data - CENTRAL_SHIFT_DECODE, EXACT_MUL_360);
+                    latitude = (long)(quotient - CENTRAL_SUB_DECODE) / EXACT_MUL;
+                    longitude = (long)(remainder - EXACT_MUL_180) / EXACT_MUL;
                 }
                 else if (_data < ARCTIC_MIN_DATA)
                 {
-                    var (quotinent, reminder) = Math.DivRem(_data - AURORA_SHIFT_DECODE, GOOD_MUL_360);
-                    latitude = (quotinent + AURORA_ADD_DECODE) / EXACT_MUL;
-                    longitude = (long)(reminder - GOOD_MUL_180) / GOOD_MUL;
+                    var (quotient, remainder) = DivRem(_data - AURORA_SHIFT_DECODE, GOOD_MUL_360);
+                    latitude = (quotient + AURORA_ADD_DECODE) / EXACT_MUL;
+                    longitude = (long)(remainder - GOOD_MUL_180) / GOOD_MUL;
                 }
                 else if (_data < NORTHERN_MIN_DATA)
                 {
-                    var (quotinent, reminder) = Math.DivRem(_data - ARCTIC_SHIFT_DECODE, SANE_MUL_360);
-                    latitude = (quotinent + ARCTIC_ADD_DECODE) / GOOD_MUL;
-                    longitude = (long)(reminder - SANE_MUL_180) / SANE_MUL;
+                    var (quotient, remainder) = DivRem(_data - ARCTIC_SHIFT_DECODE, SANE_MUL_360);
+                    latitude = (quotient + ARCTIC_ADD_DECODE) / GOOD_MUL;
+                    longitude = (long)(remainder - SANE_MUL_180) / SANE_MUL;
                 }
                 else if (_data <= NORTHERN_MAX_DATA)
                 {
-                    var (quotinent, reminder) = Math.DivRem(_data - NORTHERN_SHIFT_DECODE, ROUGH_MUL_360);
-                    latitude = (quotinent + NORTHERN_ADD_DECODE) / GOOD_MUL;
-                    longitude = (long)(reminder - ROUGH_MUL_180) / ROUGH_MUL;
+                    var (quotient, remainder) = DivRem(_data - NORTHERN_SHIFT_DECODE, ROUGH_MUL_360);
+                    latitude = (quotient + NORTHERN_ADD_DECODE) / GOOD_MUL;
+                    longitude = (long)(remainder - ROUGH_MUL_180) / ROUGH_MUL;
                 }
                 else
                     throw CreateInvalidDataException();
             }
             else if (_data >= INTERIM_MIN_DATA)
             {
-                var (quotinent, reminder) = Math.DivRem(_data - INTERIM_SHIFT_DECODE, GOOD_MUL_360);
-                latitude = (long)(quotinent - INTERIM_SUB_DECODE) / GOOD_MUL;
-                longitude = (long)(reminder - GOOD_MUL_180) / GOOD_MUL;
+                var (quotient, remainder) = DivRem(_data - INTERIM_SHIFT_DECODE, GOOD_MUL_360);
+                latitude = (long)(quotient - INTERIM_SUB_DECODE) / GOOD_MUL;
+                longitude = (long)(remainder - GOOD_MUL_180) / GOOD_MUL;
             }
             else if (_data >= ANTARCTIC_MIN_DATA)
             {
-                var (quotinent, reminder) = Math.DivRem(_data - ANTARCTIC_SHIFT_DECODE, SANE_MUL_360);
-                latitude = (long)(quotinent - ANTARCTIC_SUB_DECODE) / GOOD_MUL;
-                longitude = (long)(reminder - SANE_MUL_180) / SANE_MUL;
+                var (quotient, remainder) = DivRem(_data - ANTARCTIC_SHIFT_DECODE, SANE_MUL_360);
+                latitude = (long)(quotient - ANTARCTIC_SUB_DECODE) / GOOD_MUL;
+                longitude = (long)(remainder - SANE_MUL_180) / SANE_MUL;
             }
             else if (_data >= SOUTHERN_MIN_DATA)
             {
-                var (quotinent, reminder) = Math.DivRem(_data - SOUTHERN_SHIFT_DECODE, ROUGH_MUL_360);
-                latitude = (long)(quotinent - SOUTHERN_SUB_DECODE) / GOOD_MUL;
-                longitude = (long)(reminder - ROUGH_MUL_180) / ROUGH_MUL;
+                var (quotient, remainder) = DivRem(_data - SOUTHERN_SHIFT_DECODE, ROUGH_MUL_360);
+                latitude = (long)(quotient - SOUTHERN_SUB_DECODE) / GOOD_MUL;
+                longitude = (long)(remainder - ROUGH_MUL_180) / ROUGH_MUL;
             }
             else
                 throw CreateInvalidDataException();
@@ -260,105 +313,522 @@ public readonly struct LatLng64 : IEquatable<LatLng64>, IFormattable, IParsable<
         return (latitude, longitude);
     }
 
-    public void Deconstruct(out double latitude, out double longitude)
-    {
-        (latitude, longitude) = GetCoordinates();
-    }
-
+    /// <summary>Reconstructs an instance from a value read from <see cref="Data"/>.</summary>
+    /// <param name="data">A raw 64-bit encoding.</param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="data"/> is outside the valid encoding range.</exception>
     public static LatLng64 FromData(ulong data)
     {
+        if (data < SOUTHERN_MIN_DATA || data > NORTHERN_MAX_DATA)
+            throw CreateOutOfRangeException(nameof(data), data, DATA_RANGE_MESSAGE);
+
         return new LatLng64(data);
+    }
+
+    // NaN-safe range checks shared by the (double, double) constructor and the parse path.
+    private static bool IsValidLatitude(double value) => value >= -90 && value <= 90;
+    private static bool IsValidLongitude(double value) => value >= -180 && value <= 180;
+
+    // Snaps a scaled coordinate onto the integer grid; AwayFromZero keeps ties symmetric.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static ulong Quantize(double value)
+    {
+        unchecked
+        {
+            return (ulong)Math.Round(value, MidpointRounding.AwayFromZero);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static (ulong Quotient, ulong Remainder) DivRem(ulong dividend, ulong divisor)
+    {
+#if NET6_0_OR_GREATER
+        return Math.DivRem(dividend, divisor);
+#else
+        var quotient = dividend / divisor;
+        return (quotient, dividend - quotient * divisor);
+#endif
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static ArgumentOutOfRangeException CreateOutOfRangeException(
+        string paramName, object value, string message)
+    {
+        return new ArgumentOutOfRangeException(paramName, value, message);
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static InvalidOperationException CreateInvalidDataException()
     {
-        return new InvalidOperationException("Invalid data.");
+        return new InvalidOperationException(
+            "The LatLng64 is uninitialized (default) or contains invalid data.");
     }
 
-    #region IEquatable
+    [DebuggerBrowsable(DebuggerBrowsableState.Never)]
+    private string DebuggerDisplay =>
+        _data == 0 ? "<default>" : ToString(format: null, CultureInfo.InvariantCulture);
 
+    #endregion
+
+    #region IEquatable, IComparable
+
+    /// <summary>Indicates whether this instance and another
+    /// represent the same encoded coordinate.</summary>
     public bool Equals(LatLng64 other) => _data == other._data;
 
+    /// <summary>Indicates whether this instance and the specified object
+    /// represent the same encoded coordinate.</summary>
     public override bool Equals(object? obj) => obj is LatLng64 latLng && Equals(latLng);
 
+    /// <inheritdoc/>
     public override int GetHashCode() => _data.GetHashCode();
 
+    /// <summary>Indicates whether two instances represent the same encoded coordinate.</summary>
     public static bool operator ==(LatLng64 left, LatLng64 right) => left.Equals(right);
 
+    /// <summary>Indicates whether two instances represent different encoded coordinates.</summary>
     public static bool operator !=(LatLng64 left, LatLng64 right) => !(left == right);
 
+    /// <summary>
+    /// Deterministic ordering by raw <see cref="Data"/>.
+    /// Suitable for sorting, deduplication, and database indexing, but is NOT a spatial index —
+    /// geographically close points may be far apart in this order.
+    /// </summary>
+    public int CompareTo(LatLng64 other) => _data.CompareTo(other._data);
+
+    /// <inheritdoc/>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="obj"/> is neither <see langword="null"/> nor a <see cref="LatLng64"/>.
+    /// </exception>
+    public int CompareTo(object? obj)
+    {
+        if (obj is null)
+            return 1;
+
+        if (obj is LatLng64 other)
+            return CompareTo(other);
+
+        throw new ArgumentException($"Object must be of type {nameof(LatLng64)}.", nameof(obj));
+    }
+
     #endregion
 
-    #region IFormattable
+    #region IFormattable, ISpanFormattable
 
+    /// <inheritdoc/>
     public override string ToString()
     {
-        return ToString(format: null, CultureInfo.InvariantCulture);
+        return ToString(format: null, formatProvider: null);
     }
 
-    public string ToString(string? format, IFormatProvider? formatProvider = null)
+    /// <summary>Formats the coordinates using the specified format string.</summary>
+    /// <param name="format">A standard or custom numeric format string applied to each axis.
+    /// Empty or <see langword="null"/> defaults to <c>"0.########"</c> —
+    /// full precision, no trailing zeros, no exponential form.</param>
+    /// <exception cref="InvalidOperationException">
+    /// The instance is uninitialized (<see langword="default"/>).</exception>
+    public string ToString([StringSyntax(StringSyntaxAttribute.NumericFormat)] string? format)
     {
+        return ToString(format, formatProvider: null);
+    }
+
+    /// <summary>Formats the coordinates using the specified culture's number format.</summary>
+    /// <param name="formatProvider">A culture-specific format provider;
+    /// <see langword="null"/> defaults to <see cref="CultureInfo.CurrentCulture"/>.</param>
+    /// <exception cref="InvalidOperationException">
+    /// The instance is uninitialized (<see langword="default"/>).</exception>
+    public string ToString(IFormatProvider? formatProvider)
+    {
+        return ToString(format: null, formatProvider);
+    }
+
+    /// <summary>
+    /// Formats the coordinates as <c>"latitude, longitude"</c> (or <c>"latitude; longitude"</c>
+    /// for cultures whose decimal separator is a comma).
+    /// </summary>
+    /// <param name="format">A standard or custom numeric format string applied to each axis.
+    /// Empty or <see langword="null"/> defaults to <c>"0.########"</c> —
+    /// full precision, no trailing zeros, no exponential form.</param>
+    /// <param name="formatProvider">A culture-specific format provider;
+    /// <see langword="null"/> defaults to <see cref="CultureInfo.CurrentCulture"/>.</param>
+    /// <exception cref="InvalidOperationException">
+    /// The instance is uninitialized (<see langword="default"/>).</exception>
+    public string ToString(
+        [StringSyntax(StringSyntaxAttribute.NumericFormat)] string? format,
+        IFormatProvider? formatProvider)
+    {
+#if NET7_0_OR_GREATER
+        Span<char> buffer = stackalloc char[64];
+
+        if (TryFormat(buffer, out var charsWritten, format.AsSpan(), formatProvider))
+            return buffer[..charsWritten].ToString();
+
+        // Long custom format (e.g. "F30") overflows the 64-char stackalloc — fall through.
+#endif
         var (latitude, longitude) = GetCoordinates();
-        formatProvider ??= CultureInfo.InvariantCulture;
+        formatProvider ??= CultureInfo.CurrentCulture;
         var formatInfo = NumberFormatInfo.GetInstance(formatProvider);
         var separator = formatInfo.NumberDecimalSeparator == "," ? "; " : ", ";
-        var latStr = latitude.ToString(format ?? "G17", formatProvider);
-        var lngStr = longitude.ToString(format ?? "G17", formatProvider);
-        return $"{latStr}{separator}{lngStr}";
+
+        if (string.IsNullOrEmpty(format))
+            format = "0.########"; // Full precision, no trailing zeros, no exponential form
+
+        return latitude.ToString(format, formatProvider)
+             + separator
+             + longitude.ToString(format, formatProvider);
     }
 
+#if NET7_0_OR_GREATER
+
+    /// <inheritdoc/>
+    /// <exception cref="InvalidOperationException">
+    /// The instance is uninitialized (<see langword="default"/>).</exception>
+    public bool TryFormat(
+        Span<char> destination, out int charsWritten,
+        [StringSyntax(StringSyntaxAttribute.NumericFormat)] ReadOnlySpan<char> format = default,
+        IFormatProvider? provider = null)
+    {
+        var (latitude, longitude) = GetCoordinates();
+        provider ??= CultureInfo.CurrentCulture;
+        var formatInfo = NumberFormatInfo.GetInstance(provider);
+        var separator = (formatInfo.NumberDecimalSeparator == "," ? "; " : ", ").AsSpan();
+
+        if (format.IsEmpty)
+            format = "0.########"; // Full precision, no trailing zeros, no exponential form
+
+        if (!latitude.TryFormat(destination, out var latLen, format, provider) ||
+            destination.Length - latLen < separator.Length)
+        {
+            charsWritten = 0;
+            return false;
+        }
+
+        separator.CopyTo(destination[latLen..]);
+        var offset = latLen + separator.Length;
+
+        if (!longitude.TryFormat(destination[offset..], out var lngLen, format, provider))
+        {
+            charsWritten = 0;
+            return false;
+        }
+
+        charsWritten = offset + lngLen;
+        return true;
+    }
+
+#endif
+
+#if NET8_0_OR_GREATER
+
+    /// <inheritdoc/>
+    /// <exception cref="InvalidOperationException">
+    /// The instance is uninitialized (<see langword="default"/>).</exception>
+    public bool TryFormat(
+        Span<byte> utf8Destination, out int bytesWritten,
+        [StringSyntax(StringSyntaxAttribute.NumericFormat)] ReadOnlySpan<char> format = default,
+        IFormatProvider? provider = null)
+    {
+        var (latitude, longitude) = GetCoordinates();
+        provider ??= CultureInfo.CurrentCulture;
+        var formatInfo = NumberFormatInfo.GetInstance(provider);
+        var separator = formatInfo.NumberDecimalSeparator == "," ? "; "u8 : ", "u8;
+
+        if (format.IsEmpty)
+            format = "0.########"; // Full precision, no trailing zeros, no exponential form
+
+        if (!latitude.TryFormat(utf8Destination, out var latLen, format, provider) ||
+            utf8Destination.Length - latLen < separator.Length)
+        {
+            bytesWritten = 0;
+            return false;
+        }
+
+        separator.CopyTo(utf8Destination[latLen..]);
+        var offset = latLen + separator.Length;
+
+        if (!longitude.TryFormat(utf8Destination[offset..], out var lngLen, format, provider))
+        {
+            bytesWritten = 0;
+            return false;
+        }
+
+        bytesWritten = offset + lngLen;
+        return true;
+    }
+
+#endif
     #endregion
 
-    #region IParsable
+    #region IParsable, ISpanParsable
 
-    public static LatLng64 Parse(string s, IFormatProvider? provider = null)
+    /// <summary>
+    /// Parses a <c>"latitude, longitude"</c> string (or <c>"latitude; longitude"</c> for cultures
+    /// whose decimal separator is a comma) using the current culture.
+    /// </summary>
+    /// <param name="s">The input to parse.</param>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="s"/> is <see langword="null"/>.</exception>
+    /// <exception cref="FormatException">
+    /// <paramref name="s"/> is not in a recognized format.</exception>
+    /// <exception cref="OverflowException">
+    /// A coordinate is outside the allowed range, NaN, or infinite.</exception>
+    public static LatLng64 Parse(string s)
     {
-        ArgumentNullException.ThrowIfNull(s);
-
-        if (TryParse(s, provider, out var result))
-            return result;
-
-        throw new FormatException(
-            "The input string was not in a correct format. Expected format: 'latitude, longitude'.");
+        return Parse(s, provider: null);
     }
 
-    public static bool TryParse([NotNullWhen(true)] string? s, IFormatProvider? provider, out LatLng64 result)
+    /// <summary>
+    /// Parses a <c>"latitude, longitude"</c> string (or <c>"latitude; longitude"</c> for cultures
+    /// whose decimal separator is a comma). The expected pair separator is derived from the
+    /// provider's number format.
+    /// </summary>
+    /// <param name="s">The input to parse.</param>
+    /// <param name="provider">A culture-specific format provider;
+    /// <see langword="null"/> defaults to <see cref="CultureInfo.CurrentCulture"/>.</param>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="s"/> is <see langword="null"/>.</exception>
+    /// <exception cref="FormatException">
+    /// <paramref name="s"/> is not in a recognized format.</exception>
+    /// <exception cref="OverflowException">
+    /// A coordinate is outside the allowed range, NaN, or infinite.</exception>
+    public static LatLng64 Parse(string s, IFormatProvider? provider)
+    {
+#if NET
+        ArgumentNullException.ThrowIfNull(s);
+#else
+        if (s is null)
+            throw new ArgumentNullException(nameof(s));
+#endif
+        return ParseCore(s, provider);
+    }
+
+    /// <summary>
+    /// Tries to parse a <c>"latitude, longitude"</c> string (or <c>"latitude; longitude"</c>
+    /// for cultures whose decimal separator is a comma). The expected pair separator is derived
+    /// from the provider's number format. Does not throw on bad input.
+    /// </summary>
+    /// <param name="s">The input to parse.</param>
+    /// <param name="result">When this method returns, contains the parsed coordinate if successful;
+    /// otherwise <see langword="default"/>.</param>
+    /// <returns>
+    /// <see langword="true"/> if parsing succeeded; otherwise <see langword="false"/>.</returns>
+    public static bool TryParse([NotNullWhen(true)] string? s, out LatLng64 result)
+    {
+        return TryParse(s, provider: null, out result);
+    }
+
+    /// <inheritdoc cref="TryParse(string?, out LatLng64)"/>
+    /// <param name="s">The input to parse.</param>
+    /// <param name="provider">A culture-specific format provider;
+    /// <see langword="null"/> defaults to <see cref="CultureInfo.CurrentCulture"/>.</param>
+    /// <param name="result">When this method returns, contains the parsed coordinate if successful;
+    /// otherwise <see langword="default"/>.</param>
+    public static bool TryParse(
+        [NotNullWhen(true)] string? s, IFormatProvider? provider, out LatLng64 result)
+    {
+        if (s is null)
+        {
+            result = default;
+            return false;
+        }
+
+        return TryParseCore(s, provider, out result) == ParseError.None;
+    }
+
+#if NET7_0_OR_GREATER
+
+    /// <inheritdoc cref="Parse(string)"/>
+    public static LatLng64 Parse(ReadOnlySpan<char> s)
+    {
+        return ParseCore(s, provider: null);
+    }
+
+    /// <inheritdoc cref="Parse(string, IFormatProvider?)"/>
+    public static LatLng64 Parse(ReadOnlySpan<char> s, IFormatProvider? provider)
+    {
+        return ParseCore(s, provider);
+    }
+
+    /// <inheritdoc cref="TryParse(string?, out LatLng64)"/>
+    public static bool TryParse(ReadOnlySpan<char> s, out LatLng64 result)
+    {
+        return TryParse(s, provider: null, out result);
+    }
+
+    /// <inheritdoc cref="TryParse(string?, IFormatProvider?, out LatLng64)"/>
+    public static bool TryParse(
+        ReadOnlySpan<char> s, IFormatProvider? provider, out LatLng64 result)
+    {
+        return TryParseCore(s, provider, out result) == ParseError.None;
+    }
+
+#endif
+
+#if NET8_0_OR_GREATER
+
+    /// <inheritdoc cref="Parse(string)"/>
+    public static LatLng64 Parse(ReadOnlySpan<byte> utf8Text)
+    {
+        return Parse(utf8Text, provider: null);
+    }
+
+    /// <inheritdoc cref="Parse(string, IFormatProvider?)"/>
+    public static LatLng64 Parse(ReadOnlySpan<byte> utf8Text, IFormatProvider? provider)
+    {
+        var error = TryParseCore(utf8Text, provider, out var result);
+
+        if (error == ParseError.None)
+            return result;
+
+        throw CreateParseException(error, provider);
+    }
+
+    /// <inheritdoc cref="TryParse(string?, out LatLng64)"/>
+    public static bool TryParse(ReadOnlySpan<byte> utf8Text, out LatLng64 result)
+    {
+        return TryParse(utf8Text, provider: null, out result);
+    }
+
+    /// <inheritdoc cref="TryParse(string?, IFormatProvider?, out LatLng64)"/>
+    public static bool TryParse(
+        ReadOnlySpan<byte> utf8Text, IFormatProvider? provider, out LatLng64 result)
+    {
+        return TryParseCore(utf8Text, provider, out result) == ParseError.None;
+    }
+
+#endif
+
+    private static LatLng64 ParseCore(
+#if NET7_0_OR_GREATER
+        ReadOnlySpan<char> s,
+#else
+        string s,
+#endif
+        IFormatProvider? provider)
+    {
+        var error = TryParseCore(s, provider, out var result);
+
+        if (error == ParseError.None)
+            return result;
+
+        throw CreateParseException(error, provider);
+    }
+
+    private static ParseError TryParseCore(
+#if NET7_0_OR_GREATER
+        ReadOnlySpan<char> s,
+#else
+        string s,
+#endif
+        IFormatProvider? provider, out LatLng64 result)
     {
         result = default;
 
-        if (string.IsNullOrWhiteSpace(s))
-            return false;
+        if (s.Length == 0)
+            return ParseError.BadFormat;
 
-        var span = s.AsSpan();
-        int sepIndex = span.IndexOf(';');
-        var isSemicolon = sepIndex != -1;
+        provider ??= CultureInfo.CurrentCulture;
+        var formatInfo = NumberFormatInfo.GetInstance(provider);
+        var pairSeparator = formatInfo.NumberDecimalSeparator == "," ? ';' : ',';
 
-        if (!isSemicolon)
-            sepIndex = span.IndexOf(',');
+        var sepIndex = s.IndexOf(pairSeparator);
 
         if (sepIndex == -1)
-            return false;
+            return ParseError.BadFormat;
 
-        var latSpan = span[..sepIndex];
-        var lngSpan = span[(sepIndex + 1)..];
-        provider ??= isSemicolon ? CultureInfo.CurrentCulture : CultureInfo.InvariantCulture;
+        var latSpan = s[..sepIndex];
+        var lngSpan = s[(sepIndex + 1)..];
 
-        if (double.TryParse(latSpan, NumberStyles.Float, provider, out var latitude) &&
-            double.TryParse(lngSpan, NumberStyles.Float, provider, out var longitude))
+        if (!double.TryParse(latSpan, NumberStyles.Float, provider, out var latitude) ||
+            !double.TryParse(lngSpan, NumberStyles.Float, provider, out var longitude))
+            return ParseError.BadFormat;
+
+        return EncodeIfInRange(latitude, longitude, out result);
+    }
+
+#if NET8_0_OR_GREATER
+
+    private static ParseError TryParseCore(
+        ReadOnlySpan<byte> s, IFormatProvider? provider, out LatLng64 result)
+    {
+        result = default;
+
+        if (s.Length == 0)
+            return ParseError.BadFormat;
+
+        provider ??= CultureInfo.CurrentCulture;
+        var formatInfo = NumberFormatInfo.GetInstance(provider);
+        var pairSeparator = formatInfo.NumberDecimalSeparator == "," ? (byte)';' : (byte)',';
+
+        var sepIndex = s.IndexOf(pairSeparator);
+
+        if (sepIndex == -1)
+            return ParseError.BadFormat;
+
+        var latSpan = s[..sepIndex];
+        var lngSpan = s[(sepIndex + 1)..];
+
+        if (!double.TryParse(latSpan, NumberStyles.Float, provider, out var latitude) ||
+            !double.TryParse(lngSpan, NumberStyles.Float, provider, out var longitude))
+            return ParseError.BadFormat;
+
+        return EncodeIfInRange(latitude, longitude, out result);
+    }
+
+#endif
+
+    private static ParseError EncodeIfInRange(
+        double latitude, double longitude, out LatLng64 result)
+    {
+        if (!IsValidLatitude(latitude))
         {
-            try
-            {
-                result = new LatLng64(latitude, longitude);
-                return true;
-            }
-            catch (ArgumentOutOfRangeException)
-            {
-                return false;
-            }
+            result = default;
+            return ParseError.LatitudeOutOfRange;
         }
 
-        return false;
+        if (!IsValidLongitude(longitude))
+        {
+            result = default;
+            return ParseError.LongitudeOutOfRange;
+        }
+
+        var data = EncodeCore(latitude, longitude);
+        result = new LatLng64(data);
+        return ParseError.None;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static Exception CreateParseException(ParseError error, IFormatProvider? provider)
+    {
+        switch (error)
+        {
+            case ParseError.LatitudeOutOfRange:
+                return new OverflowException(LATITUDE_RANGE_MESSAGE);
+            case ParseError.LongitudeOutOfRange:
+                return new OverflowException(LONGITUDE_RANGE_MESSAGE);
+            default:
+                var resolved = provider ?? CultureInfo.CurrentCulture;
+                var formatInfo = NumberFormatInfo.GetInstance(resolved);
+                var expected = formatInfo.NumberDecimalSeparator == ","
+                    ? "'latitude; longitude'"
+                    : "'latitude, longitude'";
+                var cultureName = resolved is CultureInfo c
+                    ? (c.Name.Length > 0 ? c.Name : "Invariant")
+                    : resolved.GetType().Name;
+                var cultureSource = provider is null ? "current" : "provided";
+                return new FormatException(
+                    "The input string was not in a correct format. " +
+                    "Expected: " + expected + " for the " + cultureSource +
+                    " culture (" + cultureName + ").");
+        }
+    }
+
+    private enum ParseError : byte
+    {
+        None,
+        BadFormat,
+        LatitudeOutOfRange,
+        LongitudeOutOfRange,
     }
 
     #endregion

@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="Directory.Build.props" />
+  </Folder>
+  <Project Path="LatLng64/LatLng64.csproj" />
+  <Project Path="LatLng64.Tests/LatLng64.Tests.csproj" />
+</Solution>

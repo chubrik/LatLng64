@@ -2,8 +2,35 @@
 
   <PropertyGroup>
     <TargetFrameworks>net8.0;netstandard2.0</TargetFrameworks>
+    <AssemblyName>Chubrik.LatLng64</AssemblyName>
+    <DebugType>embedded</DebugType>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>Chubrik.LatLng64</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Arkadi Chubrik</Authors>
+    <Copyright>© 2023–2026 Arkadi Chubrik</Copyright>
+    <Description>A 64-bit struct that packs [latitude, longitude] into a single ulong with ±2.8 mm precision in populated latitudes and ±5.6 mm in polar zones. Decodes to clean decimals. Half the size of a (double, double) pair; ideal for geographic databases.</Description>
+    <PackageTags>latitude;longitude;latlon;latlong;coordinates;geo;geocoding;gps;compact;struct;ulong</PackageTags>
+    <PackageIcon>icon.png</PackageIcon>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/chubrik/LatLng64</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/chubrik/LatLng64</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\icon.png" Link="Pack\icon.png" Pack="true" PackagePath="" />
+    <None Include="..\README.md" Link="Pack\README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="all" />
+  </ItemGroup>
 
 </Project>

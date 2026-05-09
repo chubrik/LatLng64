@@ -7,8 +7,8 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 
 /// <summary>
-/// A geographic coordinate (latitude, longitude) packed into 64 bits with variable per-zone
-/// precision — down to ±2.8 mm near populated latitudes, coarser toward the poles.
+/// Represents a geographic coordinate <c>(latitude, longitude)</c> packed into 64 bits
+/// with ±2.8 mm precision in populated latitudes and ±5.6 mm in polar zones.
 /// The <see langword="default"/> value is intentionally invalid: <see cref="GetCoordinates"/>
 /// throws on it, surfacing uninitialized state instead of silently mapping to a real point.
 /// </summary>
@@ -24,9 +24,9 @@ public readonly struct LatLng64 :
 {
     #region Private Constants
 
-    // Approximate boundaries of geographical zones. The AURORA and CENTRAL zones are considered inhabited,
-    // while others are not. Each zone applies specific coordinate rounding rules based on population density
-    // and its unique spherical geometry characteristics.
+    // Approximate boundaries of geographical zones. The AURORA and CENTRAL zones are considered
+    // inhabited, whereas the others are not. Each zone applies its own coordinate rounding rules,
+    // based on population density and the characteristics of its spherical geometry.
     private const int NORTHERN_TOP = 90;
     private const int NORTHERN_BOTTOM = 85;
     private const int ARCTIC_BOTTOM = 72;
@@ -42,30 +42,33 @@ public readonly struct LatLng64 :
     private const double SANE_MUL = 5_000_000;
     private const double ROUGH_MUL = 1_000_000;
 
-    // The value range size within the internal _data field for a single latitude unit, based on the precision level.
+    // Longitude zero-centering offset in encoded units (180 × multiplier), by precision level.
     private const ulong EXACT_MUL_180 = 180 * (ulong)EXACT_MUL;
     private const ulong GOOD_MUL_180 = 180 * (ulong)GOOD_MUL;
     private const ulong SANE_MUL_180 = 180 * (ulong)SANE_MUL;
     private const ulong ROUGH_MUL_180 = 180 * (ulong)ROUGH_MUL;
 
-    // Multiplier coefficient used during coordinate encoding and decoding for each precision level.
+    // Latitude-step stride in encoded units (360 × multiplier), by precision level.
     private const long EXACT_MUL_360 = 360 * (long)EXACT_MUL;
     private const long GOOD_MUL_360 = 360 * (long)GOOD_MUL;
     private const long SANE_MUL_360 = 360 * (long)SANE_MUL;
     private const long ROUGH_MUL_360 = 360 * (long)ROUGH_MUL;
 
     // Maximum error in degrees for each precision level.
-    private const double EXACT_ERROR = 0.5 / EXACT_MUL;  //  0.000000025
-    private const double GOOD_ERROR = 0.5 / GOOD_MUL;    //  0.00000005
-    private const double SANE_ERROR = 0.5 / SANE_MUL;    //  0.0000001
-    private const double ROUGH_ERROR = 0.5 / ROUGH_MUL;  //  0.0000005
+    private const double EXACT_ERROR = 0.5 / EXACT_MUL; // 0.000000025
+    private const double GOOD_ERROR = 0.5 / GOOD_MUL;   // 0.00000005
+    private const double SANE_ERROR = 0.5 / SANE_MUL;   // 0.0000001
+    private const double ROUGH_ERROR = 0.5 / ROUGH_MUL; // 0.0000005
 
-    // Maximum allowable input longitude in degrees for each geographical zone.
-    private const double DOUBLE_BIT_ERROR = 1e-14;                                        //    0.00000000000001
-    private const double EXACT_MAX_LONGITUDE = 180 - EXACT_ERROR - 2 * DOUBLE_BIT_ERROR;  //  179.99999997499998
-    private const double GOOD_MAX_LONGITUDE = 180 - GOOD_ERROR - 2 * DOUBLE_BIT_ERROR;    //  179.99999994999996
-    private const double SANE_MAX_LONGITUDE = 180 - SANE_ERROR - 2 * DOUBLE_BIT_ERROR;    //  179.99999989999998
-    private const double ROUGH_MAX_LONGITUDE = 180 - ROUGH_ERROR - 2 * DOUBLE_BIT_ERROR;  //  179.99999949999997
+    // Threshold below which double-precision rounding noise is treated as zero.
+    private const double DOUBLE_BIT_ERROR = 1e-14; // 0.00000000000001
+
+    // Maximum input longitude before wrapping to -180 (avoids encoding +180° as a separate bin),
+    // by precision level.
+    private const double EXACT_MAX_LONGITUDE = 180 - EXACT_ERROR - 2 * DOUBLE_BIT_ERROR; // 179.99999997499998
+    private const double GOOD_MAX_LONGITUDE = 180 - GOOD_ERROR - 2 * DOUBLE_BIT_ERROR;   // 179.99999994999996
+    private const double SANE_MAX_LONGITUDE = 180 - SANE_ERROR - 2 * DOUBLE_BIT_ERROR;   // 179.99999989999998
+    private const double ROUGH_MAX_LONGITUDE = 180 - ROUGH_ERROR - 2 * DOUBLE_BIT_ERROR; // 179.99999949999997
 
     // Total value range size within the internal _data field for each geographical zone.
     private const ulong NORTHERN_SIZE = ((NORTHERN_TOP - NORTHERN_BOTTOM) * (ulong)GOOD_MUL + 1) * ROUGH_MUL_360;
@@ -76,25 +79,26 @@ public readonly struct LatLng64 :
     private const ulong ANTARCTIC_SIZE = (INTERIM_BOTTOM - ANTARCTIC_BOTTOM) * (ulong)GOOD_MUL * SANE_MUL_360;
     private const ulong SOUTHERN_SIZE = ((ANTARCTIC_BOTTOM - SOUTHERN_BOTTOM) * (ulong)GOOD_MUL + 1) * ROUGH_MUL_360;
 
-    // Minimum value (offset) of the internal _data field for each geographical zone.
-    private const ulong NORTHERN_MAX_DATA = NORTHERN_MIN_DATA + NORTHERN_SIZE - 1;  //  18 432 000 000 359 999 999   0x_FFCB_9E57_E975_29FF
-    private const ulong NORTHERN_MIN_DATA = ARCTIC_MIN_DATA + ARCTIC_SIZE;          //  18 414 000 000 000 000 000   0x_FF8B_AB70_3E0B_0000
-    private const ulong ARCTIC_MIN_DATA = AURORA_MIN_DATA + AURORA_SIZE;            //  18 180 000 000 000 000 000   0x_FC4C_55AD_A09A_0000
-    private const ulong AURORA_MIN_DATA = CENTRAL_MIN_DATA + CENTRAL_SIZE;          //  17 316 000 000 000 000 000   0x_F04E_CA41_82AA_0000
-    private const ulong CENTRAL_MIN_DATA = INTERIM_MIN_DATA + INTERIM_SIZE;         //     612 000 007 200 000 000   0x_087E_42C3_97B1_4800
-    private const ulong INTERIM_MIN_DATA = ANTARCTIC_MIN_DATA + ANTARCTIC_SIZE;     //     468 000 007 200 000 000   0x_067E_AB86_E809_4800
-    private const ulong ANTARCTIC_MIN_DATA = SOUTHERN_MIN_DATA + SOUTHERN_SIZE;     //      18 000 007 200 000 000   0x_003F_F2E9_431C_4800
-    private const ulong SOUTHERN_MIN_DATA = 6_840_000_000;                          //               6 840 000 000   0x_0000_0001_97B2_1E00
+    // Boundary values of the internal _data field:
+    // overall maximum, then the minimum (offset) of each geographical zone.
+    private const ulong NORTHERN_MAX_DATA = NORTHERN_MIN_DATA + NORTHERN_SIZE - 1; //  18 432 000 000 359 999 999   0x_FFCB_9E57_E975_29FF
+    private const ulong NORTHERN_MIN_DATA = ARCTIC_MIN_DATA + ARCTIC_SIZE;         //  18 414 000 000 000 000 000   0x_FF8B_AB70_3E0B_0000
+    private const ulong ARCTIC_MIN_DATA = AURORA_MIN_DATA + AURORA_SIZE;           //  18 180 000 000 000 000 000   0x_FC4C_55AD_A09A_0000
+    private const ulong AURORA_MIN_DATA = CENTRAL_MIN_DATA + CENTRAL_SIZE;         //  17 316 000 000 000 000 000   0x_F04E_CA41_82AA_0000
+    private const ulong CENTRAL_MIN_DATA = INTERIM_MIN_DATA + INTERIM_SIZE;        //     612 000 007 200 000 000   0x_087E_42C3_97B1_4800
+    private const ulong INTERIM_MIN_DATA = ANTARCTIC_MIN_DATA + ANTARCTIC_SIZE;    //     468 000 007 200 000 000   0x_067E_AB86_E809_4800
+    private const ulong ANTARCTIC_MIN_DATA = SOUTHERN_MIN_DATA + SOUTHERN_SIZE;    //      18 000 007 200 000 000   0x_003F_F2E9_431C_4800
+    private const ulong SOUTHERN_MIN_DATA = 6_840_000_000;                         //               6 840 000 000   0x_0000_0001_97B2_1E00
 
-    // Minimum allowable input latitude in degrees for each geographical zone.
-    private const double NORTHERN_BOTTOM_ENCODE = NORTHERN_BOTTOM - GOOD_ERROR;                    //  84.99999995
-    private const double ARCTIC_BOTTOM_ENCODE = ARCTIC_BOTTOM - EXACT_ERROR;                       //  71.999999975
-    private const double AURORA_BOTTOM_ENCODE = AURORA_BOTTOM - EXACT_ERROR - DOUBLE_BIT_ERROR;    //  59.999999974999994
-    private const double CENTRAL_BOTTOM_ENCODE = CENTRAL_BOTTOM + EXACT_ERROR + DOUBLE_BIT_ERROR;  // -55.999999974999994
-    private const double INTERIM_BOTTOM_ENCODE = INTERIM_BOTTOM + GOOD_ERROR + DOUBLE_BIT_ERROR;   // -59.999999949999996
-    private const double ANTARCTIC_BOTTOM_ENCODE = ANTARCTIC_BOTTOM + GOOD_ERROR;                  // -84.99999995
+    // Latitude threshold separating adjacent zones, used for zone dispatch in encoding.
+    private const double NORTHERN_BOTTOM_ENCODE = NORTHERN_BOTTOM - GOOD_ERROR;                   //  84.99999995
+    private const double ARCTIC_BOTTOM_ENCODE = ARCTIC_BOTTOM - EXACT_ERROR;                      //  71.999999975
+    private const double AURORA_BOTTOM_ENCODE = AURORA_BOTTOM - EXACT_ERROR - DOUBLE_BIT_ERROR;   //  59.999999974999994
+    private const double CENTRAL_BOTTOM_ENCODE = CENTRAL_BOTTOM + EXACT_ERROR + DOUBLE_BIT_ERROR; // -55.999999974999994
+    private const double INTERIM_BOTTOM_ENCODE = INTERIM_BOTTOM + GOOD_ERROR + DOUBLE_BIT_ERROR;  // -59.999999949999996
+    private const double ANTARCTIC_BOTTOM_ENCODE = ANTARCTIC_BOTTOM + GOOD_ERROR;                 // -84.99999995
 
-    // Mathematical shift (offset) used when calculating the internal _data field for each zone.
+    // Shift (offset) used when calculating the internal _data field for each zone.
     private const ulong NORTHERN_SHIFT_ENCODE = NORTHERN_MIN_DATA - NORTHERN_BOTTOM * (ulong)GOOD_MUL * ROUGH_MUL_360 + ROUGH_MUL_180;
     private const ulong ARCTIC_SHIFT_ENCODE = ARCTIC_MIN_DATA - ARCTIC_BOTTOM * (ulong)GOOD_MUL * SANE_MUL_360 + SANE_MUL_180;
     private const ulong AURORA_SHIFT_ENCODE = AURORA_MIN_DATA - AURORA_BOTTOM * (ulong)EXACT_MUL * GOOD_MUL_360 + GOOD_MUL_180;
@@ -103,7 +107,7 @@ public readonly struct LatLng64 :
     private const ulong ANTARCTIC_SHIFT_ENCODE = ANTARCTIC_MIN_DATA + (-ANTARCTIC_BOTTOM * (ulong)GOOD_MUL - 1) * SANE_MUL_360 + SANE_MUL_180;
     private const ulong SOUTHERN_SHIFT_ENCODE = SOUTHERN_MIN_DATA + (-SOUTHERN_BOTTOM) * (ulong)GOOD_MUL * ROUGH_MUL_360 + ROUGH_MUL_180;
 
-    // Mathematical shift (offset) used during coordinate recovery for each geographical zone.
+    // Shift (offset) used during coordinate recovery for each zone.
     private const ulong NORTHERN_SHIFT_DECODE = NORTHERN_MIN_DATA;
     private const ulong ARCTIC_SHIFT_DECODE = ARCTIC_MIN_DATA;
     private const ulong AURORA_SHIFT_DECODE = AURORA_MIN_DATA;
@@ -112,7 +116,7 @@ public readonly struct LatLng64 :
     private const ulong ANTARCTIC_SHIFT_DECODE = ANTARCTIC_MIN_DATA - SANE_MUL_360;
     private const ulong SOUTHERN_SHIFT_DECODE = SOUTHERN_MIN_DATA;
 
-    // Mathematical shift (offset) used during latitude reconstruction for each geographical zone.
+    // Shift (offset) used during latitude reconstruction for each zone.
     private const ulong NORTHERN_ADD_DECODE = (ulong)(NORTHERN_BOTTOM * GOOD_MUL);
     private const ulong ARCTIC_ADD_DECODE = (ulong)(ARCTIC_BOTTOM * GOOD_MUL);
     private const ulong AURORA_ADD_DECODE = (ulong)(AURORA_BOTTOM * EXACT_MUL);
@@ -133,7 +137,7 @@ public readonly struct LatLng64 :
     private readonly ulong _data;
 
     /// <summary>
-    /// The raw 64-bit encoding. Stable across processes; suitable for database persistence.
+    /// Gets the raw 64-bit encoding. Stable across processes; suitable for database persistence.
     /// Reconstruct via <see cref="FromData(ulong)"/>.
     /// </summary>
     public ulong Data => _data;
@@ -145,7 +149,8 @@ public readonly struct LatLng64 :
         _data = data;
     }
 
-    /// <summary>Creates a <see cref="LatLng64"/> from latitude and longitude in degrees.</summary>
+    /// <summary>Initializes a new instance of the <see cref="LatLng64"/> struct from latitude
+    /// and longitude in degrees.</summary>
     /// <param name="latitude">Degrees in [-90, +90] inclusive.</param>
     /// <param name="longitude">Degrees in [-180, +180] inclusive;
     /// <c>-180</c> and <c>+180</c> are treated as the same meridian.</param>
@@ -172,7 +177,8 @@ public readonly struct LatLng64 :
         (latitude, longitude) = GetCoordinates();
     }
 
-    // Pure encoder. Caller MUST have validated lat in [-90,+90] and lng in [-180,+180].
+    // Trusted: caller guarantees latitude in [-90, +90] and longitude in [-180, +180].
+    // Public entry points (constructor, Parse, TryParse) validate before invoking.
     private static ulong EncodeCore(double latitude, double longitude)
     {
         unchecked
@@ -246,11 +252,8 @@ public readonly struct LatLng64 :
         }
     }
 
-    /// <summary>
-    /// Decodes the stored value into latitude and longitude in degrees.
-    /// Both axes are computed in one pass.
-    /// </summary>
-    /// <returns>The decoded latitude and longitude.</returns>
+    /// <summary>Decodes the stored value into latitude and longitude in degrees.</summary>
+    /// <returns>A tuple containing the decoded latitude and longitude.</returns>
     /// <exception cref="InvalidOperationException">
     /// The instance is uninitialized (<see langword="default"/>).</exception>
     public (double Latitude, double Longitude) GetCoordinates()
@@ -313,8 +316,11 @@ public readonly struct LatLng64 :
         return (latitude, longitude);
     }
 
-    /// <summary>Reconstructs an instance from a value read from <see cref="Data"/>.</summary>
+    /// <summary>Reconstructs a <see cref="LatLng64"/> from a raw 64-bit encoding previously
+    /// obtained from <see cref="Data"/>.</summary>
     /// <param name="data">A raw 64-bit encoding.</param>
+    /// <returns>A <see cref="LatLng64"/> equivalent to the encoding in
+    /// <paramref name="data"/>.</returns>
     /// <exception cref="ArgumentOutOfRangeException">
     /// <paramref name="data"/> is outside the valid encoding range.</exception>
     public static LatLng64 FromData(ulong data)
@@ -372,28 +378,42 @@ public readonly struct LatLng64 :
 
     #region IEquatable, IComparable
 
-    /// <summary>Indicates whether this instance and another
+    /// <summary>Returns a value indicating whether this instance and another <see cref="LatLng64"/>
     /// represent the same encoded coordinate.</summary>
+    /// <param name="other">A <see cref="LatLng64"/> to compare with this instance.</param>
+    /// <returns><see langword="true"/> if <paramref name="other"/> equals this instance;
+    /// otherwise, <see langword="false"/>.</returns>
+    /// <remarks><see langword="default"/> equals only itself; this method does not throw,
+    /// per the <see cref="IEquatable{T}"/> contract.</remarks>
     public bool Equals(LatLng64 other) => _data == other._data;
 
-    /// <summary>Indicates whether this instance and the specified object
+    /// <summary>Returns a value indicating whether this instance and a specified object
     /// represent the same encoded coordinate.</summary>
+    /// <param name="obj">An object to compare with this instance.</param>
+    /// <returns><see langword="true"/> if <paramref name="obj"/> is a <see cref="LatLng64"/>
+    /// and equals this instance; otherwise, <see langword="false"/>.</returns>
     public override bool Equals(object? obj) => obj is LatLng64 latLng && Equals(latLng);
 
     /// <inheritdoc/>
     public override int GetHashCode() => _data.GetHashCode();
 
-    /// <summary>Indicates whether two instances represent the same encoded coordinate.</summary>
+    /// <summary>Returns a value indicating whether two instances represent the same
+    /// encoded coordinate.</summary>
     public static bool operator ==(LatLng64 left, LatLng64 right) => left.Equals(right);
 
-    /// <summary>Indicates whether two instances represent different encoded coordinates.</summary>
+    /// <summary>Returns a value indicating whether two instances represent different
+    /// encoded coordinates.</summary>
     public static bool operator !=(LatLng64 left, LatLng64 right) => !(left == right);
 
-    /// <summary>
-    /// Deterministic ordering by raw <see cref="Data"/>.
-    /// Suitable for sorting, deduplication, and database indexing, but is NOT a spatial index —
-    /// geographically close points may be far apart in this order.
-    /// </summary>
+    /// <summary>Compares this instance with another <see cref="LatLng64"/> by raw
+    /// <see cref="Data"/>. The ordering is deterministic and suitable for sorting,
+    /// deduplication, and database indexing, but is NOT a spatial index — geographically
+    /// close points may be far apart in this order.</summary>
+    /// <param name="other">A <see cref="LatLng64"/> to compare with this instance.</param>
+    /// <returns>A signed integer that indicates the relative order of this instance
+    /// and <paramref name="other"/>.</returns>
+    /// <remarks><see langword="default"/> orders below all valid values; this method does not
+    /// throw, per the <see cref="IComparable{T}"/> contract.</remarks>
     public int CompareTo(LatLng64 other) => _data.CompareTo(other._data);
 
     /// <inheritdoc/>
@@ -421,10 +441,13 @@ public readonly struct LatLng64 :
         return ToString(format: null, formatProvider: null);
     }
 
-    /// <summary>Formats the coordinates using the specified format string.</summary>
+    /// <summary>Converts the value of this instance to its equivalent string representation
+    /// using the specified format.</summary>
     /// <param name="format">A standard or custom numeric format string applied to each axis.
     /// Empty or <see langword="null"/> defaults to <c>"0.########"</c> —
     /// full precision, no trailing zeros, no exponential form.</param>
+    /// <returns>The string representation of the coordinates as specified
+    /// by <paramref name="format"/>.</returns>
     /// <exception cref="InvalidOperationException">
     /// The instance is uninitialized (<see langword="default"/>).</exception>
     public string ToString([StringSyntax(StringSyntaxAttribute.NumericFormat)] string? format)
@@ -432,9 +455,12 @@ public readonly struct LatLng64 :
         return ToString(format, formatProvider: null);
     }
 
-    /// <summary>Formats the coordinates using the specified culture's number format.</summary>
+    /// <summary>Converts the value of this instance to its equivalent string representation
+    /// using the specified culture-specific format information.</summary>
     /// <param name="formatProvider">A culture-specific format provider;
     /// <see langword="null"/> defaults to <see cref="CultureInfo.CurrentCulture"/>.</param>
+    /// <returns>The string representation of the coordinates as specified
+    /// by <paramref name="formatProvider"/>.</returns>
     /// <exception cref="InvalidOperationException">
     /// The instance is uninitialized (<see langword="default"/>).</exception>
     public string ToString(IFormatProvider? formatProvider)
@@ -442,15 +468,17 @@ public readonly struct LatLng64 :
         return ToString(format: null, formatProvider);
     }
 
-    /// <summary>
-    /// Formats the coordinates as <c>"latitude, longitude"</c> (or <c>"latitude; longitude"</c>
-    /// for cultures whose decimal separator is a comma).
-    /// </summary>
+    /// <summary>Converts the value of this instance to its equivalent string representation
+    /// as <c>"latitude, longitude"</c> (or <c>"latitude; longitude"</c> for cultures whose
+    /// decimal separator is a comma), using the specified format and culture-specific format
+    /// information.</summary>
     /// <param name="format">A standard or custom numeric format string applied to each axis.
     /// Empty or <see langword="null"/> defaults to <c>"0.########"</c> —
     /// full precision, no trailing zeros, no exponential form.</param>
     /// <param name="formatProvider">A culture-specific format provider;
     /// <see langword="null"/> defaults to <see cref="CultureInfo.CurrentCulture"/>.</param>
+    /// <returns>The string representation of the coordinates as specified by
+    /// <paramref name="format"/> and <paramref name="formatProvider"/>.</returns>
     /// <exception cref="InvalidOperationException">
     /// The instance is uninitialized (<see langword="default"/>).</exception>
     public string ToString(
@@ -561,11 +589,12 @@ public readonly struct LatLng64 :
 
     #region IParsable, ISpanParsable
 
-    /// <summary>
-    /// Parses a <c>"latitude, longitude"</c> string (or <c>"latitude; longitude"</c> for cultures
-    /// whose decimal separator is a comma) using the current culture.
-    /// </summary>
-    /// <param name="s">The input to parse.</param>
+    /// <summary>Converts the string representation of a coordinate pair to its
+    /// <see cref="LatLng64"/> equivalent. The input is expected as
+    /// <c>"latitude, longitude"</c> (or <c>"latitude; longitude"</c> for cultures whose
+    /// decimal separator is a comma), parsed using the current culture.</summary>
+    /// <param name="s">A string containing the coordinate pair to convert.</param>
+    /// <returns>The <see cref="LatLng64"/> equivalent of <paramref name="s"/>.</returns>
     /// <exception cref="ArgumentNullException">
     /// <paramref name="s"/> is <see langword="null"/>.</exception>
     /// <exception cref="FormatException">
@@ -577,14 +606,16 @@ public readonly struct LatLng64 :
         return Parse(s, provider: null);
     }
 
-    /// <summary>
-    /// Parses a <c>"latitude, longitude"</c> string (or <c>"latitude; longitude"</c> for cultures
-    /// whose decimal separator is a comma). The expected pair separator is derived from the
-    /// provider's number format.
-    /// </summary>
-    /// <param name="s">The input to parse.</param>
+    /// <summary>Converts the string representation of a coordinate pair to its
+    /// <see cref="LatLng64"/> equivalent, using the specified culture-specific format
+    /// information. The input is expected as <c>"latitude, longitude"</c> (or
+    /// <c>"latitude; longitude"</c> for cultures whose decimal separator is a comma);
+    /// the expected pair separator is derived from <paramref name="provider"/>.</summary>
+    /// <param name="s">A string containing the coordinate pair to convert.</param>
     /// <param name="provider">A culture-specific format provider;
     /// <see langword="null"/> defaults to <see cref="CultureInfo.CurrentCulture"/>.</param>
+    /// <returns>The <see cref="LatLng64"/> equivalent of <paramref name="s"/> as specified
+    /// by <paramref name="provider"/>.</returns>
     /// <exception cref="ArgumentNullException">
     /// <paramref name="s"/> is <see langword="null"/>.</exception>
     /// <exception cref="FormatException">
@@ -602,27 +633,27 @@ public readonly struct LatLng64 :
         return ParseCore(s, provider);
     }
 
-    /// <summary>
-    /// Tries to parse a <c>"latitude, longitude"</c> string (or <c>"latitude; longitude"</c>
-    /// for cultures whose decimal separator is a comma). The expected pair separator is derived
-    /// from the provider's number format. Does not throw on bad input.
-    /// </summary>
-    /// <param name="s">The input to parse.</param>
-    /// <param name="result">When this method returns, contains the parsed coordinate if successful;
-    /// otherwise <see langword="default"/>.</param>
-    /// <returns>
-    /// <see langword="true"/> if parsing succeeded; otherwise <see langword="false"/>.</returns>
+    /// <summary>Tries to convert the string representation of a coordinate pair to its
+    /// <see cref="LatLng64"/> equivalent. A return value indicates whether the conversion
+    /// succeeded or failed.</summary>
+    /// <param name="s">A string containing the coordinate pair to convert.</param>
+    /// <param name="result">When this method returns, contains the <see cref="LatLng64"/>
+    /// equivalent of <paramref name="s"/> if the conversion succeeded; otherwise,
+    /// <see langword="default"/>.</param>
+    /// <returns><see langword="true"/> if <paramref name="s"/> was converted successfully;
+    /// otherwise, <see langword="false"/>.</returns>
     public static bool TryParse([NotNullWhen(true)] string? s, out LatLng64 result)
     {
         return TryParse(s, provider: null, out result);
     }
 
     /// <inheritdoc cref="TryParse(string?, out LatLng64)"/>
-    /// <param name="s">The input to parse.</param>
+    /// <param name="s">A string containing the coordinate pair to convert.</param>
     /// <param name="provider">A culture-specific format provider;
     /// <see langword="null"/> defaults to <see cref="CultureInfo.CurrentCulture"/>.</param>
-    /// <param name="result">When this method returns, contains the parsed coordinate if successful;
-    /// otherwise <see langword="default"/>.</param>
+    /// <param name="result">When this method returns, contains the <see cref="LatLng64"/>
+    /// equivalent of <paramref name="s"/> if the conversion succeeded; otherwise,
+    /// <see langword="default"/>.</param>
     public static bool TryParse(
         [NotNullWhen(true)] string? s, IFormatProvider? provider, out LatLng64 result)
     {
@@ -637,13 +668,15 @@ public readonly struct LatLng64 :
 
 #if NET7_0_OR_GREATER
 
-    /// <inheritdoc cref="Parse(string)"/>
+    /// <inheritdoc cref="Parse(string)"
+    /// path="/*[not(self::exception[@cref='T:System.ArgumentNullException'])]"/>
     public static LatLng64 Parse(ReadOnlySpan<char> s)
     {
         return ParseCore(s, provider: null);
     }
 
-    /// <inheritdoc cref="Parse(string, IFormatProvider?)"/>
+    /// <inheritdoc cref="Parse(string, IFormatProvider?)"
+    /// path="/*[not(self::exception[@cref='T:System.ArgumentNullException'])]"/>
     public static LatLng64 Parse(ReadOnlySpan<char> s, IFormatProvider? provider)
     {
         return ParseCore(s, provider);
@@ -666,13 +699,15 @@ public readonly struct LatLng64 :
 
 #if NET8_0_OR_GREATER
 
-    /// <inheritdoc cref="Parse(string)"/>
+    /// <inheritdoc cref="Parse(string)"
+    /// path="/*[not(self::exception[@cref='T:System.ArgumentNullException'])]"/>
     public static LatLng64 Parse(ReadOnlySpan<byte> utf8Text)
     {
         return Parse(utf8Text, provider: null);
     }
 
-    /// <inheritdoc cref="Parse(string, IFormatProvider?)"/>
+    /// <inheritdoc cref="Parse(string, IFormatProvider?)"
+    /// path="/*[not(self::exception[@cref='T:System.ArgumentNullException'])]"/>
     public static LatLng64 Parse(ReadOnlySpan<byte> utf8Text, IFormatProvider? provider)
     {
         var error = TryParseCore(utf8Text, provider, out var result);
